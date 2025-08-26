@@ -8389,6 +8389,10 @@ global.depositState = {};
 
 // Proses top-up
 
+// Pastikan async-mutex sudah diinisialisasi di atas file Anda
+// const { Mutex } = require('async-mutex');
+// const dbMutex = new Mutex();
+
 topUpQueue.process(async (job) => {
     const { userId, amount, uniqueAmount, qrisMessageId } = job.data;
     const timeout = Date.now() + (15 * 60 * 1000); // Batas waktu 15 menit
@@ -8407,57 +8411,45 @@ topUpQueue.process(async (job) => {
 
         try {
             // ===================================================================
-            // BLOK PENDETEKSIAN PEMBAYARAN YANG DIPERBAIKI
+            // BLOK PENDETEKSIAN PEMBAYARAN
             // ===================================================================
-         const response = await axios.post(
-  // URL sudah benar
-  `https://qris.payment.web.id/payment/qris/${vars.OKE_API_BASE}`, 
-  
-  // Body/Data sekarang menggunakan TOKEN YANG BENAR
-  {
-    "username": vars.ORKUT_USERNAME,
-    "token": vars.ORKUT_TOKEN // <--- PERUBAHAN KRUSIAL DI SINI
-  }, 
-  
-  // Konfigurasi request (User-Agent tetap penting)
-  {
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'curl/7.68.0'
-    },
-    timeout: 25000
-  }
-);
+            const response = await axios.post(
+                // PERBAIKAN: Menggunakan variabel yang benar dari file .vars.json
+                `https://qris.payment.web.id/payment/qris/${vars.ORKUT_MERCHANT_ID}`,
+                {
+                    "username": vars.ORKUT_USERNAME,
+                    "token": vars.ORKUT_TOKEN
+                },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'curl/7.6.0'
+                    },
+                    timeout: 25000
+                }
+            );
 
-            // LOGGING KRUSIAL UNTUK DEBUGGING: Tampilkan seluruh respons dari API
-            console.log(`[TOPUP_DEBUG] Respons mentah dari API mutasi untuk User ${userId}:`, JSON.stringify(response.data, null, 2));
+            // Log untuk debugging jika API tidak memberikan hasil yang diharapkan
+            // console.log(`[TOPUP_DEBUG] Respons mentah dari API mutasi untuk User ${userId}:`, JSON.stringify(response.data, null, 2));
 
             if (response.data && Array.isArray(response.data.data)) {
                 // Cari transaksi yang cocok dengan jumlah unik
                 const paymentFound = response.data.data.find(item => {
-                    // Log setiap item untuk memudahkan debug
-                    // console.log(`[TOPUP_DEBUG] Mengecek item:`, item); 
-                    
-                    // Deteksi tipe transaksi yang lebih fleksibel
                     const isCredit = item.type === 'CR' || item.tipe === 'CR' || item.transaction_type?.toLowerCase() === 'credit';
-                    
-                    // Deteksi nominal yang lebih fleksibel
                     const nominalApi = parseFloat(item.nominal || item.amount || 0);
-
                     return isCredit && nominalApi === parseFloat(uniqueAmount);
                 });
 
                 if (paymentFound) {
                     // ===================================================================
-                    // BLOK PENGUNCIAN TRANSAKSI YANG DIPERBAIKI (ANTI DOUBLE TOPUP)
+                    // BLOK PENGUNCIAN TRANSAKSI (ANTI DOUBLE TOPUP)
                     // ===================================================================
                     let apiTransactionId = paymentFound.trx_id || paymentFound.transaction_id || paymentFound.id;
 
                     if (!apiTransactionId) {
-                        // Jika tidak ada ID resmi, buat ID unik dari hash keterangan (deskripsi)
                         const description = paymentFound.keterangan || paymentFound.description || `TRX-${uniqueAmount}-${paymentFound.tanggal}`;
                         apiTransactionId = crypto.createHash('sha256').update(description).digest('hex');
-                        console.log(`[TOPUP_POLL] ID transaksi dari API tidak ada, membuat ID cadangan dari hash: ${apiTransactionId}`);
+                        console.log(`[TOPUP_POLL] Membuat ID transaksi cadangan dari hash: ${apiTransactionId}`);
                     }
 
                     const release = await dbMutex.acquire(); // Kunci database sebelum menulis
@@ -8469,11 +8461,10 @@ topUpQueue.process(async (job) => {
                                 [apiTransactionId, userId, uniqueAmount, new Date().toISOString()],
                                 function (err) {
                                     if (err) {
-                                        // Jika sudah ada (UNIQUE constraint failed), berarti sudah diproses.
                                         if (err.message.includes('UNIQUE constraint failed')) {
                                             return reject(new Error('ALREADY_PROCESSED'));
                                         }
-                                        return reject(err); // Error lain
+                                        return reject(err);
                                     }
                                     resolve(); // Berhasil mengunci
                                 }
@@ -8525,7 +8516,6 @@ topUpQueue.process(async (job) => {
                             console.log(`[TOPUP_POLL] Transaksi ${apiTransactionId} sudah pernah diproses. Diabaikan untuk User ${userId}.`);
                             pembayaranDiterima = true; // Anggap selesai agar loop berhenti
                         } else {
-                            // Error serius saat proses DB setelah pembayaran terdeteksi
                             console.error(`[TOPUP_POLL] KRITIS: Pembayaran terdeteksi TAPI gagal proses DB untuk User ${userId}:`, dbError);
                             bot.telegram.sendMessage(ADMIN, `🔴 KRITIS: Pembayaran Rp${uniqueAmount} untuk User ${userId} terdeteksi tapi GAGAL diproses di DB. Harap periksa manual! Error: ${dbError.message}`).catch(()=>{});
                             pembayaranDiterima = true; // Hentikan loop untuk mencegah error berulang
@@ -8548,7 +8538,6 @@ topUpQueue.process(async (job) => {
     // Jika setelah timeout pembayaran tetap tidak ditemukan
     if (!pembayaranDiterima) {
         const finalUserState = userState[userId];
-        // Pastikan proses dibatalkan hanya jika sesi top-up ini masih aktif
         if (finalUserState?.step === 'topup_waiting_payment' && finalUserState?.qrisMessageId === qrisMessageId) {
             console.log(`[TOPUP_POLL] 🚫 Pembayaran tidak ditemukan untuk User ${userId} (Rp ${uniqueAmount}) - TIMEOUT.`);
             if (qrisMessageId) {
@@ -8556,14 +8545,14 @@ topUpQueue.process(async (job) => {
             }
             try {
                 await bot.telegram.sendMessage(userId, '🚫 Top-up QRIS gagal karena melewati batas waktu pembayaran. Jika Anda sudah transfer, silakan hubungi admin untuk pengecekan manual.');
-                await sendMainMenuToUser(userId); // Kirim menu utama lagi
+                await sendMainMenuToUser(userId);
             } catch (e) {
                 console.error(`[TOPUP_POLL] Gagal kirim notif timeout ke ${userId}: ${e.message}`);
             }
         }
     }
 
-    // Bersihkan state setelah proses selesai (berhasil, gagal, atau timeout)
+    // Bersihkan state setelah proses selesai
     const latestState = userState[userId];
     if (latestState && latestState.qrisMessageId === qrisMessageId) {
         delete userState[userId];
