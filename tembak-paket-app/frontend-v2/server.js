@@ -112,6 +112,17 @@ app.prepare().then(() => {
           return fs.createReadStream(filePath).pipe(res);
         }
       }
+      // case-insensitive ads.txt
+      if (/^\/ads\.txt$/i.test(parsedUrl.pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
+        const filePath = path.join(__dirname, 'public', 'ads.txt');
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=0');
+        res.setHeader('Accept-Ranges', 'bytes');
+        const stat = fs.statSync(filePath);
+        res.setHeader('Content-Length', stat.size);
+        return fs.createReadStream(filePath).pipe(res);
+      }
       if (parsedUrl.pathname === '/_deploy' && (req.method === 'POST' || req.method === 'GET')) {
         return handleDeploy(req, res);
       }
