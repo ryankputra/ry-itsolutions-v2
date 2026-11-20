@@ -42,7 +42,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
           source: "tembak-paket-app/frontend-v2/.next/"
-          target: "/path/to/stb/app/frontend-v2/" # Ganti dengan path di STB Anda
+          target: "/www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2/"
 
       - name: Restart STB application
         uses: appleboy/ssh-action@master
@@ -52,5 +52,5 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            cd /path/to/stb/app/frontend-v2/ # Ganti dengan path di STB Anda
-            pm2 restart <nama_aplikasi_pm2> # Ganti dengan nama aplikasi PM2 Anda
+            cd /www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2/
+            pm2 restart rystore-frontend
