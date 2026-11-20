@@ -9,6 +9,9 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  APP_DIR: tembak-paket-app/frontend-v2
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,17 +37,19 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
 
+      # .next adalah folder tersembunyi; upload-artifact v4 melewatinya kalau
+      # dikirim sebagai path. Jadi dibungkus tar dulu.
+      - name: Package build
+        run: tar -czf "$GITHUB_WORKSPACE/frontend-next.tgz" .next public/version.json
+
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: frontend-next
           if-no-files-found: error
           retention-days: 3
-          path: |
-            tembak-paket-app/frontend-v2/.next/**
-            !tembak-paket-app/frontend-v2/.next/cache/**
-            !tembak-paket-app/frontend-v2/.next/dev/**
-            tembak-paket-app/frontend-v2/public/version.json
+          path: frontend-next.tgz
+          compression-level: 0
 
   deploy:
     # Runner self-hosted ini terpasang DI STB, jadi tidak perlu SSH masuk
@@ -52,8 +57,6 @@ jobs:
     needs: build
     if: vars.STB_RUNNER_READY == 'true'
     runs-on: [self-hosted, stb]
-    env:
-      APP_DIR: /www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2
     steps:
       - name: Unduh hasil build
         uses: actions/download-artifact@v4
@@ -65,25 +68,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SRC="${{ runner.temp }}/next-build"
-          if [ ! -d "$SRC/.next" ]; then
-            echo "Hasil build tidak ditemukan di $SRC"; exit 1
-          fi
+          APP_DIR=/www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2
+          SRC="${{ runner.temp }}/next-build/frontend-next.tgz"
+          tar -tzf "$SRC" > /dev/null
           rm -rf "$APP_DIR/.next.prev"
-          if [ -d "$APP_DIR/.next" ]; then
-            mv "$APP_DIR/.next" "$APP_DIR/.next.prev"
-          fi
-          mv "$SRC/.next" "$APP_DIR/.next"
-          if [ -f "$SRC/public/version.json" ]; then
-            cp -f "$SRC/public/version.json" "$APP_DIR/public/version.json"
-          fi
+          [ -d "$APP_DIR/.next" ] && mv "$APP_DIR/.next" "$APP_DIR/.next.prev"
+          tar -xzf "$SRC" -C "$APP_DIR"
           rm -rf "$APP_DIR/.next.prev"
+          echo "BUILD_ID: $(cat "$APP_DIR/.next/BUILD_ID")"
 
       - name: Restart PM2
         shell: bash
         run: |
           set -euo pipefail
-          cd "$APP_DIR"
+          cd /www/wwwroot/ry-itsolutions
           pm2 restart rystore-frontend --update-env
           pm2 save
+          sleep 5
+          curl -fsS --max-time 30 -o /dev/null http://127.0.0.1:3005/
           pm2 ls
