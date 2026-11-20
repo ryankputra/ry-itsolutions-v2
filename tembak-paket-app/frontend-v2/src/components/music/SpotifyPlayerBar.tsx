@@ -18,11 +18,14 @@ import {
   ChevronDown,
   ChevronUp,
   Zap,
+  X,
 } from "lucide-react";
 import { useMusic } from "@/lib/musicContext";
+import { useApp } from "@/lib/store";
 
 export function SpotifyPlayerBar() {
   const pathname = usePathname();
+  const { user } = useApp();
   const isHiburanPage = pathname === "/hiburan" || pathname.startsWith("/hiburan/");
   const isAiPage = pathname === "/ai";
 
@@ -53,10 +56,16 @@ export function SpotifyPlayerBar() {
     toggleFavorite,
     toggleMinimize,
     formatTime,
+    setPlayerVisible,
   } = useMusic();
 
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubValue, setScrubValue] = useState(0);
+
+  // Hide if not logged in
+  if (!user) {
+    return null;
+  }
 
   // If on /ai full-screen page or on /hiburan (which already has its full spotlight player & tracklist), hide bar
   if (isAiPage || isHiburanPage) {
@@ -368,6 +377,15 @@ export function SpotifyPlayerBar() {
                 aria-label="Pengatur Volume"
               />
             </div>
+
+            {/* Close / X Button */}
+            <button
+              onClick={() => setPlayerVisible(false)}
+              className="p-1.5 rounded-full text-ink-muted dark:text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer btn-press"
+              title="Tutup Player"
+            >
+              <X className="w-4 h-4" />
+            </button>
 
             {/* Minimize / Down Arrow */}
             <button
