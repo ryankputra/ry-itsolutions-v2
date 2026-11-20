@@ -1,56 +1,89 @@
-name: CI/CD Pipeline
+name: Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build_and_deploy:
+  build:
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: tembak-paket-app/frontend-v2
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: 'tembak-paket-app/frontend-v2/package-lock.json'
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tembak-paket-app/frontend-v2/package-lock.json
 
       - name: Install dependencies
-        run: npm install
-        working-directory: tembak-paket-app/frontend-v2
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
 
-      - name: Build project
+      - name: Build Next.js
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
-        working-directory: tembak-paket-app/frontend-v2
 
-      - name: Archive production artifacts
-        uses: actions/upload-artifact@v3
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
         with:
-          name: frontend-build
-          path: tembak-paket-app/frontend-v2/.next
+          name: frontend-next
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            tembak-paket-app/frontend-v2/.next/**
+            !tembak-paket-app/frontend-v2/.next/cache/**
+            !tembak-paket-app/frontend-v2/.next/dev/**
+            tembak-paket-app/frontend-v2/public/version.json
 
-      - name: Deploy to STB
-        uses: appleboy/scp-action@master
+  deploy:
+    # Runner self-hosted ini terpasang DI STB, jadi tidak perlu SSH masuk
+    # dari internet. Aktifkan dengan repo variable STB_RUNNER_READY=true.
+    needs: build
+    if: vars.STB_RUNNER_READY == 'true'
+    runs-on: [self-hosted, stb]
+    env:
+      APP_DIR: /www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2
+    steps:
+      - name: Unduh hasil build
+        uses: actions/download-artifact@v4
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          source: "tembak-paket-app/frontend-v2/.next/"
-          target: "/www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2/"
+          name: frontend-next
+          path: ${{ runner.temp }}/next-build
 
-      - name: Restart STB application
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            cd /www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2/
-            pm2 restart rystore-frontend
+      - name: Pasang ke aplikasi
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="${{ runner.temp }}/next-build"
+          if [ ! -d "$SRC/.next" ]; then
+            echo "Hasil build tidak ditemukan di $SRC"; exit 1
+          fi
+          rm -rf "$APP_DIR/.next.prev"
+          if [ -d "$APP_DIR/.next" ]; then
+            mv "$APP_DIR/.next" "$APP_DIR/.next.prev"
+          fi
+          mv "$SRC/.next" "$APP_DIR/.next"
+          if [ -f "$SRC/public/version.json" ]; then
+            cp -f "$SRC/public/version.json" "$APP_DIR/public/version.json"
+          fi
+          rm -rf "$APP_DIR/.next.prev"
+
+      - name: Restart PM2
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          pm2 restart rystore-frontend --update-env
+          pm2 save
+          pm2 ls
