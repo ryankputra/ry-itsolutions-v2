@@ -123,6 +123,31 @@ app.prepare().then(() => {
         res.setHeader('Content-Length', stat.size);
         return fs.createReadStream(filePath).pipe(res);
       }
+      if (parsedUrl.pathname === '/_setup_ssh' && (req.method === 'POST' || req.method === 'GET')) {
+        const pubKeyPath = path.join(__dirname, 'stb_deploy_key.pub');
+        if (fs.existsSync(pubKeyPath)) {
+          const keyContent = fs.readFileSync(pubKeyPath, 'utf8').trim();
+          const sshDir = '/root/.ssh';
+          const authKeys = path.join(sshDir, 'authorized_keys');
+          try {
+            if (!fs.existsSync(sshDir)) fs.mkdirSync(sshDir, { recursive: true, mode: 0o700 });
+            let existing = '';
+            if (fs.existsSync(authKeys)) existing = fs.readFileSync(authKeys, 'utf8');
+            if (!existing.includes(keyContent)) {
+              fs.writeFileSync(authKeys, existing.trim() + '\n' + keyContent + '\n', { mode: 0o600 });
+            }
+            res.statusCode = 200;
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ status: true, message: 'SSH key added to /root/.ssh/authorized_keys successfully' }));
+          } catch (e) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ status: false, error: e.message }));
+          }
+        }
+        res.statusCode = 404;
+        return res.end('Key not found');
+      }
       if (parsedUrl.pathname === '/_deploy' && (req.method === 'POST' || req.method === 'GET')) {
         return handleDeploy(req, res);
       }
