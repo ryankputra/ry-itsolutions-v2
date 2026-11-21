@@ -1,4 +1,4 @@
-name: Build
+name: Build and Deploy STB
 
 on:
   push:
@@ -6,11 +6,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-deploy-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  APP_DIR: tembak-paket-app/frontend-v2
 
 jobs:
   build:
@@ -37,53 +34,28 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
 
-      # .next adalah folder tersembunyi; upload-artifact v4 melewatinya kalau
-      # dikirim sebagai path. Jadi dibungkus tar dulu.
-      - name: Package build
+      - name: Package build (.next + public)
         run: tar -czf "$GITHUB_WORKSPACE/frontend-next.tgz" .next public/version.json
 
-      - name: Upload build output
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: frontend-next
-          if-no-files-found: error
-          retention-days: 3
           path: frontend-next.tgz
-          compression-level: 0
+          retention-days: 1
 
   deploy:
-    # Runner self-hosted ini terpasang DI STB, jadi tidak perlu SSH masuk
-    # dari internet. Aktifkan dengan repo variable STB_RUNNER_READY=true.
     needs: build
-    if: vars.STB_RUNNER_READY == 'true'
-    runs-on: [self-hosted, stb]
+    runs-on: ubuntu-latest
     steps:
-      - name: Unduh hasil build
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: frontend-next
-          path: ${{ runner.temp }}/next-build
 
-      - name: Pasang ke aplikasi
-        shell: bash
+      - name: Trigger STB Deploy via Webhook
+        env:
+          DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
         run: |
-          set -euo pipefail
-          APP_DIR=/www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2
-          SRC="${{ runner.temp }}/next-build/frontend-next.tgz"
-          tar -tzf "$SRC" > /dev/null
-          rm -rf "$APP_DIR/.next.prev"
-          [ -d "$APP_DIR/.next" ] && mv "$APP_DIR/.next" "$APP_DIR/.next.prev"
-          tar -xzf "$SRC" -C "$APP_DIR"
-          rm -rf "$APP_DIR/.next.prev"
-          echo "BUILD_ID: $(cat "$APP_DIR/.next/BUILD_ID")"
-
-      - name: Restart PM2
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd /www/wwwroot/ry-itsolutions
-          pm2 restart rystore-frontend --update-env
-          pm2 save
-          sleep 5
-          curl -fsS --max-time 30 -o /dev/null http://127.0.0.1:3005/
-          pm2 ls
+          # Kirim request ke web publik STB untuk menarik tarball / update
+          curl -v "https://ry-itsolutionts.web.id/_deploy?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
