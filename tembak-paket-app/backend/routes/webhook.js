@@ -79,14 +79,13 @@ router.get(['/deploy', '/webhook/deploy'], (req, res) => {
     if (!providedSecret || providedSecret !== WEBHOOK_SECRET) {
         return res.status(403).json({
             success: false,
-            message: 'Forbidden: Gunakan parameter ?secret=' + WEBHOOK_SECRET
+            message: 'Forbidden: Akses ditolak.'
         });
     }
     res.json({
         success: true,
         message: 'Webhook Auto Deploy endpoint aktif dan siap menerima payload POST dari GitHub.',
-        repo_root: findRepoRoot(),
-        configured_secret: WEBHOOK_SECRET
+        repo_root: findRepoRoot()
     });
 });
 

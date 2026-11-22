@@ -91,6 +91,7 @@ export function SpotifyPlayerBar() {
             onClick={toggleMinimize}
             className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center shrink-0 cursor-pointer shadow relative group border border-hairline dark:border-white/20 btn-press"
             title="Perbesar Player"
+            aria-label="Perbesar Player"
           >
             {currentTrack?.coverImage ? (
               <img src={currentTrack.coverImage} alt={currentTrack.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
@@ -109,6 +110,7 @@ export function SpotifyPlayerBar() {
           </div>
           <button
             onClick={togglePlayPause}
+            aria-label={isPlaying ? "Jeda lagu" : "Putar lagu"}
             className="w-8 h-8 rounded-full bg-ink dark:bg-white text-canvas dark:text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer shadow btn-press"
           >
             {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current translate-x-0.5" />}
@@ -117,6 +119,7 @@ export function SpotifyPlayerBar() {
             onClick={toggleMinimize}
             className="text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white transition-colors cursor-pointer btn-press"
             title="Buka Player Penuh"
+            aria-label="Buka Player Penuh"
           >
             <ChevronUp className="w-4 h-4" />
           </button>
@@ -204,6 +207,8 @@ export function SpotifyPlayerBar() {
             {/* Spotify Heart / Like Button */}
             <button
               onClick={() => toggleFavorite(currentTrack?.id || "")}
+              aria-pressed={isLiked}
+              aria-label={isLiked ? `Hapus ${currentTrack?.title || "lagu ini"} dari favorit` : `Simpan ${currentTrack?.title || "lagu ini"} ke favorit`}
               className={`p-1.5 rounded-full transition-all cursor-pointer shrink-0 btn-press hover:scale-110 active:scale-90 ${
                 isLiked ? "text-[#1ed760]" : "text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white"
               }`}
@@ -222,6 +227,8 @@ export function SpotifyPlayerBar() {
               {/* Shuffle (Desktop only) */}
               <button
                 onClick={toggleShuffle}
+                aria-pressed={isShuffle}
+                aria-label={isShuffle ? "Matikan putar acak" : "Aktifkan putar acak"}
                 className={`hidden sm:flex relative p-2 text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white transition cursor-pointer btn-press ${
                   isShuffle ? "text-[#1ed760] hover:text-[#1ed760] dark:text-[#1ed760] dark:hover:text-[#1ed760]" : ""
                 }`}
@@ -236,6 +243,7 @@ export function SpotifyPlayerBar() {
               {/* Prev */}
               <button
                 onClick={prevTrack}
+                aria-label="Lagu Sebelumnya"
                 className="p-1.5 sm:p-2 text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white hover:scale-105 active:scale-95 transition cursor-pointer btn-press"
                 title="Lagu Sebelumnya"
               >
@@ -245,6 +253,7 @@ export function SpotifyPlayerBar() {
               {/* Circular Play / Pause (Spotify Signature Button) */}
               <button
                 onClick={togglePlayPause}
+                aria-label={isPlaying ? "Jeda" : "Putar"}
                 className="w-8 h-8 sm:w-9 sm:h-9 lg:w-10 lg:h-10 rounded-full bg-ink dark:bg-white text-canvas dark:text-black hover:scale-105 active:scale-95 flex items-center justify-center shadow-lg transition-transform cursor-pointer btn-press"
                 title={isPlaying ? "Jeda" : "Putar"}
               >
@@ -260,6 +269,7 @@ export function SpotifyPlayerBar() {
               {/* Next */}
               <button
                 onClick={nextTrack}
+                aria-label="Lagu Berikutnya"
                 className="p-1.5 sm:p-2 text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white hover:scale-105 active:scale-95 transition cursor-pointer btn-press"
                 title="Lagu Berikutnya"
               >
@@ -269,6 +279,8 @@ export function SpotifyPlayerBar() {
               {/* Repeat / Loop (Desktop only) */}
               <button
                 onClick={toggleLoop}
+                aria-pressed={isLoop}
+                aria-label={isLoop ? "Matikan ulangi lagu" : "Aktifkan ulangi lagu"}
                 className={`hidden sm:flex relative p-2 text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white transition cursor-pointer btn-press ${
                   isLoop ? "text-[#1ed760] hover:text-[#1ed760] dark:text-[#1ed760] dark:hover:text-[#1ed760]" : ""
                 }`}
@@ -328,6 +340,7 @@ export function SpotifyPlayerBar() {
             {/* Speed Badge Button */}
             <button
               onClick={cyclePlaybackSpeed}
+              aria-label={`Kecepatan putar ${playbackSpeed}x, ubah kecepatan`}
               className={`px-2 py-1 rounded-full text-[10px] sm:text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 btn-press ${
                 playbackSpeed !== 1.0
                   ? "bg-[#1ed760] text-black border-[#1ed760] shadow-sm shadow-[#1ed760]/40"
@@ -343,6 +356,7 @@ export function SpotifyPlayerBar() {
             {!isHiburanPage && (
               <Link
                 href="/hiburan"
+                aria-label="Buka Playlist RyTone"
                 className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-canvas dark:bg-white/5 hover:bg-parchment dark:hover:bg-white/10 border border-hairline dark:border-white/10 text-ink-muted dark:text-zinc-300 hover:text-ink dark:hover:text-white text-xs font-semibold transition cursor-pointer btn-press"
                 title="Buka Playlist RyTone"
               >
@@ -355,6 +369,7 @@ export function SpotifyPlayerBar() {
             <div className="hidden lg:flex items-center gap-2 group relative">
               <button
                 onClick={toggleMute}
+                aria-label={isMuted ? "Bunyikan player" : "Bisukan player"}
                 className="text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white transition cursor-pointer p-1 btn-press"
                 title={isMuted ? "Bunyikan" : "Bisukan"}
               >
@@ -381,6 +396,7 @@ export function SpotifyPlayerBar() {
             {/* Close / X Button */}
             <button
               onClick={() => setPlayerVisible(false)}
+              aria-label="Tutup Player"
               className="p-1.5 rounded-full text-ink-muted dark:text-zinc-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer btn-press"
               title="Tutup Player"
             >
@@ -390,6 +406,7 @@ export function SpotifyPlayerBar() {
             {/* Minimize / Down Arrow */}
             <button
               onClick={toggleMinimize}
+              aria-label="Perkecil Player"
               className="p-1.5 rounded-full text-ink-muted dark:text-zinc-400 hover:text-ink dark:hover:text-white hover:bg-canvas dark:hover:bg-white/10 transition cursor-pointer btn-press"
               title="Perkecil Player"
             >
