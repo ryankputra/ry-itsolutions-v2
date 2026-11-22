@@ -404,10 +404,10 @@ export function MusicProvider({ children }: { children: React.ReactNode }) {
           setVolumeState(parsed);
         }
       }
-      const savedVisible = localStorage.getItem("ry_music_visible");
-      if (savedVisible !== null) {
-        setPlayerVisibleState(savedVisible === "true");
-      }
+      // Visibilitas player TIDAK dipulihkan dari localStorage:
+      // RyTone wajib tersembunyi sampai user membuka RyTone / menekan Play.
+      // Kalau(localStorage "ry_music_visible" = true) dipulihkan, bar akan
+      // muncul lagi di dashboard padahal RyTone belum dibuka.
       const savedMini = localStorage.getItem("ry_music_minimized");
       if (savedMini !== null) {
         setIsMinimized(savedMini === "true");

@@ -65,6 +65,92 @@ function serveAudio(req, res, pathname) {
 
 const DEPLOY_SECRET = process.env.AUTO_DEPLOY_SECRET || 'RyITSolutionsAutoDeploy2026';
 
+const FRONTEND_DIR = __dirname;
+const ARTIFACT_FILE = path.join(FRONTEND_DIR, 'next.tar.gz');
+const ARTIFACT_TMP = path.join(FRONTEND_DIR, 'next.tar.gz.uploading');
+const MAX_ARTIFACT_BYTES = 500 * 1024 * 1024;
+
+/**
+ * Menerima artifact build (.next + public/version.json) dari GitHub Actions.
+ * Body = file tarball mentah. Disimpan dulu sebagai file sementara lalu
+ * di-rename jadi next.tar.gz supaya extract tidak pernah membaca file setengah jadi.
+ */
+function handleArtifactUpload(req, res) {
+  const parsed = parse(req.url, true);
+  const providedSecret = parsed.query.secret || req.headers['x-webhook-secret'];
+  if (!providedSecret || providedSecret !== DEPLOY_SECRET) {
+    res.statusCode = 403;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ status: false, message: 'Forbidden' }));
+  }
+  if (req.method !== 'POST' && req.method !== 'PUT') {
+    res.statusCode = 405;
+    return res.end(JSON.stringify({ status: false, message: 'Method not allowed' }));
+  }
+
+  const out = fs.createWriteStream(ARTIFACT_TMP);
+  let bytes = 0;
+  let aborted = false;
+
+  req.on('data', (chunk) => {
+    bytes += chunk.length;
+    if (bytes > MAX_ARTIFACT_BYTES && !aborted) {
+      aborted = true;
+      out.destroy();
+      req.destroy();
+      try { fs.unlinkSync(ARTIFACT_TMP); } catch {}
+      res.statusCode = 413;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: false, message: 'Artifact too large' }));
+    }
+  });
+
+  req.on('error', (err) => {
+    if (aborted) return;
+    aborted = true;
+    out.destroy();
+    try { fs.unlinkSync(ARTIFACT_TMP); } catch {}
+    console.error('[SELF_DEPLOY] Upload aborted:', err.message);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ status: false, message: err.message }));
+    }
+  });
+
+  out.on('error', (err) => {
+    if (aborted) return;
+    aborted = true;
+    try { fs.unlinkSync(ARTIFACT_TMP); } catch {}
+    console.error('[SELF_DEPLOY] Write artifact failed:', err.message);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.end(JSON.stringify({ status: false, message: err.message }));
+    }
+  });
+
+  out.on('finish', () => {
+    if (aborted) return;
+    try {
+      fs.renameSync(ARTIFACT_TMP, ARTIFACT_FILE);
+      console.log(`[SELF_DEPLOY] Artifact received: ${bytes} bytes -> ${ARTIFACT_FILE}`);
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: true, bytes, message: 'Artifact uploaded' }));
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: false, message: err.message }));
+    }
+  });
+
+  req.pipe(out);
+}
+
+/**
+ * Extract artifact .next ke folder frontend lalu restart service PM2.
+ * Menjawab dengan status sebenarnya (sukses/gagal) supaya GitHub Actions
+ * tidak menandai deploy sukses saat extract atau restart ternyata gagal.
+ */
 function handleDeploy(req, res) {
   const parsed = parse(req.url, true);
   const providedSecret = parsed.query.secret || req.headers['x-webhook-secret'];
@@ -73,23 +159,30 @@ function handleDeploy(req, res) {
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ status: false, message: 'Forbidden' }));
   }
-  const repoRoot = path.resolve(__dirname, '../..');
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({ status: true, message: 'Deploy triggered', repo_root: repoRoot, ts: new Date().toISOString() }));
+
+  if (!fs.existsSync(ARTIFACT_FILE)) {
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ status: false, message: 'Belum ada artifact build. Kirim artifact ke /_deploy-artifact lebih dulu.' }));
+  }
 
   const { exec } = require('child_process');
-  console.log(`[SELF_DEPLOY] Triggered. Working dir: ${repoRoot}`);
-  // ponytail: .next di-commit sbg artifact deploy; perubahan lokalnya selalu konflik, jadi reset dulu.
-  // Stash sisa source changes (fitur lokal STB) biar pull bersih, lalu pulihkan.
-  const deployCmd = `git -C "${repoRoot}" remote set-url origin https://github.com/ryankputra/ry-itsolutions-v2.git && git -C "${repoRoot}" stash push -u -m "auto-deploy" && git -C "${repoRoot}" pull origin main && cd /www/wwwroot/ry-itsolutions/tembak-paket-app/frontend-v2 && tar -xzf next.tar.gz && (git -C "${repoRoot}" stash pop || true); pm2 restart rystore-backend && pm2 restart rystore-frontend`;
-  exec(deployCmd, { cwd: repoRoot, shell: true }, (err, stdout, stderr) => {
+  console.log(`[SELF_DEPLOY] Extract + restart dari ${ARTIFACT_FILE}`);
+
+  const deployCmd = `tar -xzf "${ARTIFACT_FILE}" -C "${FRONTEND_DIR}" && rm -f "${ARTIFACT_FILE}" && pm2 restart rystore-frontend && pm2 restart rystore-backend`;
+
+  exec(deployCmd, { cwd: FRONTEND_DIR, shell: true, maxBuffer: 1024 * 1024 * 8 }, (err, stdout, stderr) => {
     if (err) {
       console.error(`[SELF_DEPLOY] FAILED: ${err.message}`);
       if (stderr) console.error(`[SELF_DEPLOY] stderr:\n${stderr}`);
-      return;
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json');
+      return res.end(JSON.stringify({ status: false, message: err.message, stderr: String(stderr || '').slice(0, 2000) }));
     }
     console.log(`[SELF_DEPLOY] Success. Output:\n${stdout}`);
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ status: true, message: 'Deploy selesai', output: String(stdout || '').slice(0, 2000) }));
   });
 }
 
@@ -147,6 +240,9 @@ app.prepare().then(() => {
         }
         res.statusCode = 404;
         return res.end('Key not found');
+      }
+      if (parsedUrl.pathname === '/_deploy-artifact' && (req.method === 'POST' || req.method === 'PUT')) {
+        return handleArtifactUpload(req, res);
       }
       if (parsedUrl.pathname === '/_deploy' && (req.method === 'POST' || req.method === 'GET')) {
         return handleDeploy(req, res);

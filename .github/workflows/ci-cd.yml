@@ -53,9 +53,20 @@ jobs:
         with:
           name: frontend-next
 
-      - name: Trigger STB Deploy via Webhook
+      - name: Upload Artifact to STB
         env:
           DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
         run: |
-          # Kirim request ke web publik STB untuk menarik tarball / update
-          curl -v "https://ry-itsolutionts.web.id/_deploy?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
+          echo "Uploading frontend-next.tgz to STB..."
+          curl -fsS -X POST \
+            -H "Content-Type: application/gzip" \
+            --data-binary "@frontend-next.tgz" \
+            "https://ry-itsolutionts.web.id/_deploy-artifact?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
+
+      - name: Trigger STB Deploy & Restart
+        env:
+          DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
+        run: |
+          echo "Triggering STB extract & restart..."
+          curl -fsS -X GET \
+            "https://ry-itsolutionts.web.id/_deploy?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
