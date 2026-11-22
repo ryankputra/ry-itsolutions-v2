@@ -284,7 +284,7 @@ export function MusicProvider({ children }: { children: React.ReactNode }) {
   const [isLoop, setIsLoop] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
   const [favorites, setFavorites] = useState<string[]>([]);
-  const [isPlayerVisible, setPlayerVisibleState] = useState<boolean>(true);
+  const [isPlayerVisible, setPlayerVisibleState] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [isResuming, setIsResuming] = useState<boolean>(false);
