@@ -16,7 +16,12 @@ const IG_TESTI_DIR = path.join(__dirname, 'public', 'ig-testi');
 const IG_TESTI_PREFIX = '/ig-testi/';
 const AUDIO_DIR = path.join(__dirname, 'public', 'audio');
 const AUDIO_PREFIX = '/audio/';
-const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.mp3': 'audio/mpeg', '.webm': 'audio/webm', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg' };
+// APK / artifact downloads: served straight from disk at request time so a new
+// build can be dropped in without restarting the frontend (Next enumerates
+// public/ only once at boot).
+const DOWNLOAD_DIR = path.join(__dirname, 'public', 'download');
+const DOWNLOAD_PREFIX = '/download/';
+const MIME = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.mp3': 'audio/mpeg', '.webm': 'audio/webm', '.m4a': 'audio/mp4', '.ogg': 'audio/ogg', '.apk': 'application/vnd.android.package-archive' };
 
 function serveIgTesti(req, res, pathname) {
   const rel = decodeURIComponent(pathname.slice(IG_TESTI_PREFIX.length));
@@ -58,6 +63,48 @@ function serveAudio(req, res, pathname) {
         'Accept-Ranges': 'bytes',
         'Content-Type': contentType,
       });
+      fs.createReadStream(file).pipe(res);
+    }
+  });
+}
+
+/**
+ * Serves files from public/download at request time (APK distribution).
+ * Supports HTTP Range so large APKs can be resumed/streamed.
+ */
+function serveDownload(req, res, pathname) {
+  const rel = decodeURIComponent(pathname.slice(DOWNLOAD_PREFIX.length));
+  const file = path.join(DOWNLOAD_DIR, rel);
+  if (!file.startsWith(DOWNLOAD_DIR + path.sep)) { res.statusCode = 403; return res.end('Forbidden'); }
+  fs.stat(file, (err, stats) => {
+    if (err || !stats.isFile()) { res.statusCode = 404; return res.end('Not found'); }
+    const ext = path.extname(file).toLowerCase();
+    const contentType = MIME[ext] || 'application/octet-stream';
+    const range = req.headers.range;
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=14400');
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10) || 0;
+      const end = parts[1] ? parseInt(parts[1], 10) : stats.size - 1;
+      if (isNaN(start) || start >= stats.size || end >= stats.size || start > end) {
+        res.writeHead(416, { 'Content-Range': `bytes */${stats.size}` });
+        return res.end();
+      }
+      const chunksize = (end - start) + 1;
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${stats.size}`,
+        'Content-Length': chunksize,
+        'Content-Type': contentType,
+      });
+      if (req.method === 'HEAD') return res.end();
+      fs.createReadStream(file, { start, end }).pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': stats.size,
+        'Content-Type': contentType,
+      });
+      if (req.method === 'HEAD') return res.end();
       fs.createReadStream(file).pipe(res);
     }
   });
@@ -195,6 +242,9 @@ app.prepare().then(() => {
       }
       if (parsedUrl.pathname.startsWith(AUDIO_PREFIX) && (req.method === 'GET' || req.method === 'HEAD')) {
         return serveAudio(req, res, parsedUrl.pathname);
+      }
+      if (parsedUrl.pathname.startsWith(DOWNLOAD_PREFIX) && (req.method === 'GET' || req.method === 'HEAD')) {
+        return serveDownload(req, res, parsedUrl.pathname);
       }
       if (parsedUrl.pathname === '/sw.js' || parsedUrl.pathname.startsWith('/workbox-')) {
         const filePath = path.join(__dirname, 'public', parsedUrl.pathname);
