@@ -98,12 +98,14 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const util = require('util');
 const execFileAsync = util.promisify(execFile);
+const { normalizePreset, buildFfmpegArgs } = require('../services/audioEqualizer');
 
 const AUDIO_DIR = path.resolve(__dirname, '../../frontend-v2/public/audio/tiktok');
 const YTDLP_BIN = process.env.YTDLP_PATH || (fs.existsSync('/usr/local/bin/yt-dlp') ? '/usr/local/bin/yt-dlp' : 'yt-dlp');
+const FFMPEG_BIN = process.env.FFMPEG_PATH || (fs.existsSync('/usr/bin/ffmpeg') ? '/usr/bin/ffmpeg' : 'ffmpeg');
 
 const streamUrlCache = new Map();
 
@@ -173,6 +175,54 @@ router.get('/stream', async (req, res) => {
         if (!streamUrl || !streamUrl.startsWith('http')) {
             console.warn(`[Route: /api/music/stream] Could not resolve streamUrl for query: ${rawId}`);
             return res.status(404).json({ success: false, message: `Audio stream tidak ditemukan untuk: ${rawId}` });
+        }
+
+        // --- Equalizer (server-side, ffmpeg) ---------------------------------
+        // The app sends ?eq=<preset>. For 'normal' the raw stream is proxied as
+        // usual; for the other presets ffmpeg reads the upstream URL, applies
+        // the filter chain and the MP3 output is streamed to the client.
+        const preset = normalizePreset(req.query.eq);
+        if (preset && preset !== 'normal') {
+            const args = buildFfmpegArgs(preset, streamUrl);
+            try {
+                const proc = spawn(FFMPEG_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+                proc.on('error', (err) => {
+                    console.warn(`[Route: /api/music/stream] ffmpeg error (${preset}):`, err.message);
+                    if (!res.headersSent) {
+                        res.status(502).json({ success: false, message: "Gagal menjalankan equalizer." });
+                    }
+                });
+
+                res.writeHead(200, {
+                    'Content-Type': 'audio/mpeg',
+                    'Accept-Ranges': 'none',
+                    'Cache-Control': 'public, max-age=3600',
+                    'X-RyTone-Equalizer': preset,
+                });
+
+                proc.stdout.pipe(res);
+
+                proc.stderr.on('data', (chunk) => {
+                    const msg = chunk.toString();
+                    if (/Error|Invalid|failed/i.test(msg)) {
+                        console.warn(`[Route: /api/music/stream] ffmpeg stderr (${preset}): ${msg.slice(0, 400)}`);
+                    }
+                });
+
+                const killFfmpeg = () => {
+                    if (!proc.killed) {
+                        try { proc.kill('SIGKILL'); } catch {}
+                    }
+                };
+                req.on('close', killFfmpeg);
+                res.on('close', killFfmpeg);
+
+                return;
+            } catch (err) {
+                console.warn(`[Route: /api/music/stream] Equalizer fallback to raw stream:`, err.message);
+                // Falls through to the normal proxy below.
+            }
         }
 
         // Proxy audio stream dari GoogleVideo langsung ke client dengan dukungan Range & User-Agent & Redirects
