@@ -237,37 +237,92 @@ async function handleRiveraGroupMessage(messageText, senderName, groupName, pars
                 await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_fast_realtime_status', 'closed')");
                 await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_1b_realtime_status', 'closed')");
                 await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_exe_realtime_status', 'closed')");
+                // Kloter ditutup total: batalkan jadwal buka otomatis yang masih menyangkut.
+                await dbRun("DELETE FROM settings WHERE key IN ('rivera_fast_open_at', 'rivera_1b_open_at', 'rivera_exe_open_at')").catch(() => {});
                 console.log("[RiveraSync] Auto-Sync Web: Semua layanan Fast, 1B, & EXE diset CLOSED.");
             } else if (Array.isArray(parsed.services)) {
+                // Jadwal buka per kecepatan: jam yang MENEMPEL pada baris layanan
+                // (mis. "3B FAST ON JAM 12:00 WIB") adalah jadwal buka Fast, bukan cut-off SLOW.
+                const { extractServiceOpenSchedules, extractSlowCutoff } = require('./riveraScheduleParser');
+                const fromText = extractServiceOpenSchedules(safeText);
+                const po = parsed.openSchedules && typeof parsed.openSchedules === 'object' ? parsed.openSchedules : {};
+                // Prioritaskan jadwal temuan parser (jalur Gemini), jatuh ke ekstraksi teks bila kosong.
+                const sched = {
+                    schedules: {
+                        fast: po.fast || fromText.schedules.fast,
+                        oneB: po.oneB || fromText.schedules.oneB,
+                        exe: po.exe || fromText.schedules.exe
+                    },
+                    scheduledLines: fromText.scheduledLines,
+                    openNowLines: fromText.openNowLines
+                };
+                const OPEN_AT_KEYS = { fast: 'rivera_fast_open_at', oneB: 'rivera_1b_open_at', exe: 'rivera_exe_open_at' };
+                const STATUS_KEYS = { fast: 'rivera_fast_realtime_status', oneB: 'rivera_1b_realtime_status', exe: 'rivera_exe_realtime_status' };
+
+                const writeOpenAt = async (svc, hour) => {
+                    if (hour) {
+                        await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [OPEN_AT_KEYS[svc], hour]);
+                        await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'closed')", [STATUS_KEYS[svc]]);
+                        console.log(`[RiveraSync] Auto-Sync Web: ${svc} dijadwalkan BUKA jam ${hour} WIB (ditutup sampai jam tersebut).`);
+                    } else {
+                        await dbRun("DELETE FROM settings WHERE key = ?", [OPEN_AT_KEYS[svc]]).catch(() => {});
+                    }
+                };
+
                 for (const s of parsed.services) {
                     const sName = (s.name || '').toUpperCase();
                     const isReady = s.status === 'READY';
                     if (sName.includes('FAST') && !sName.includes('EXE') && !sName.includes('IND')) {
-                        const newStatus = isReady ? 'open' : 'closed';
+                        // Jadwal (jika ada) yang menentukan; statusnya ditutup sampai jam jadwal tiba.
+                        const scheduled = sched.schedules.fast;
+                        const newStatus = scheduled ? 'closed' : (isReady ? 'open' : 'closed');
+                        if (scheduled) await writeOpenAt('fast', scheduled);
+                        else await writeOpenAt('fast', null);
                         await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_fast_realtime_status', ?)", [newStatus]);
-                        console.log(`[RiveraSync] Auto-Sync Web: 3B SF Fast diset ${newStatus.toUpperCase()}.`);
+                        console.log(`[RiveraSync] Auto-Sync Web: 3B SF Fast diset ${newStatus.toUpperCase()}${scheduled ? ` (buka ${scheduled} WIB)` : ''}.`);
                     }
                     if (sName.includes('1B') || sName.includes('DIGIPOS')) {
-                        const newStatus = isReady ? 'open' : 'closed';
+                        const scheduled = sched.schedules.oneB;
+                        const newStatus = scheduled ? 'closed' : (isReady ? 'open' : 'closed');
+                        if (scheduled) await writeOpenAt('oneB', scheduled);
+                        else await writeOpenAt('oneB', null);
                         await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_1b_realtime_status', ?)", [newStatus]);
-                        console.log(`[RiveraSync] Auto-Sync Web: 1B Digipos diset ${newStatus.toUpperCase()}.`);
+                        console.log(`[RiveraSync] Auto-Sync Web: 1B Digipos diset ${newStatus.toUpperCase()}${scheduled ? ` (buka ${scheduled} WIB)` : ''}.`);
                     }
                     if (sName.includes('EXE') || sName.includes('IND')) {
-                        const newStatus = isReady ? 'open' : 'closed';
+                        const scheduled = sched.schedules.exe;
+                        const newStatus = scheduled ? 'closed' : (isReady ? 'open' : 'closed');
+                        if (scheduled) await writeOpenAt('exe', scheduled);
+                        else await writeOpenAt('exe', null);
                         await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_exe_realtime_status', ?)", [newStatus]);
-                        console.log(`[RiveraSync] Auto-Sync Web: 3B IND EXE diset ${newStatus.toUpperCase()}.`);
+                        console.log(`[RiveraSync] Auto-Sync Web: 3B IND EXE diset ${newStatus.toUpperCase()}${scheduled ? ` (buka ${scheduled} WIB)` : ''}.`);
                     }
+                }
+
+                // Jadwal buka yang tidak lagi disebut Rivera hari ini dibersihkan agar tidak nyangkut.
+                for (const svc of ['fast', 'oneB', 'exe']) {
+                    const mentioned = parsed.services.some(s => {
+                        const n = (s.name || '').toUpperCase();
+                        if (svc === 'fast') return n.includes('FAST') && !n.includes('EXE') && !n.includes('IND');
+                        if (svc === 'oneB') return n.includes('1B') || n.includes('DIGIPOS');
+                        return n.includes('EXE') || n.includes('IND');
+                    });
+                    if (!mentioned) await dbRun("DELETE FROM settings WHERE key = ?", [OPEN_AT_KEYS[svc]]).catch(() => {});
                 }
             }
 
-            // Deteksi jam cut-off / last list dari hasil Gemini maupun regex fallback
+            // Deteksi jam cut-off / last list dari hasil Gemini maupun regex fallback.
+            // Baris layanan yang berjadwal (mis. "3B FAST ON JAM 12:00 WIB") dikecualikan,
+            // supaya jamnya tidak tertelan menjadi cut-off 3B SLOW.
             let detectedCutoff = parsed.cutoffTime || null;
             let detectedCutoffDay = parsed.cutoffDay || null;
             if (!detectedCutoff) {
-                const cutoffMatch = safeText.match(/(?:cut\s*off|close\s*list|last\s*list|list\s*sampai)\s*(?:besok\s*(?:pagi|siang|sore|malem|malam)?\s*)?(?:jam\s*)?(\d{1,2})[.:](\d{2})/i);
-                if (cutoffMatch) {
-                    detectedCutoff = `${cutoffMatch[1].padStart(2, '0')}:${cutoffMatch[2]}`;
-                    detectedCutoffDay = /besok/i.test(safeText) ? 'tomorrow' : 'today';
+                const { extractServiceOpenSchedules: _extract, extractSlowCutoff } = require('./riveraScheduleParser');
+                const _sched = _extract(safeText);
+                const slowCutoff = extractSlowCutoff(safeText, _sched.scheduledLines);
+                if (slowCutoff) {
+                    detectedCutoff = slowCutoff.time;
+                    detectedCutoffDay = slowCutoff.day;
                 }
             }
             if (detectedCutoff) {
@@ -326,15 +381,16 @@ async function handleRiveraGroupMessage(messageText, senderName, groupName, pars
                 if (lastRunRow?.value !== todayDateWIB) {
                     console.log(`[RiveraListener] 🌟 Terdeteksi jalur READY dari Rivera sebelum Story Open hari ini (${todayDateWIB}) terbit. Menerbitkan Story 'WE ARE OPEN' & 'DISCLAIMER' duluan...`);
 
-                    // Tandai tanggal hari ini agar tidak dipanggil ulang oleh scheduler jam 10:00 atau pesan berikutnya
-                    await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('ig_open_story_last_run', ?)", [todayDateWIB]);
-
                     try {
                         const openRes = await publishOpenStory();
+                        // BUG A(e): Tulis ig_open_story_last_run HANYA SETELAH publishOpenStory() SUKSES
+                        await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('ig_open_story_last_run', ?)", [todayDateWIB]);
+
                         console.log('[RiveraListener] ✅ Story Open & Disclaimer berhasil diterbitkan duluan oleh pemicu Rivera.');
                         await notifyAdminStoryOpen(openRes);
                     } catch (openErr) {
                         console.error('[RiveraListener] Gagal menerbitkan Story Open lebih awal:', openErr.message);
+                        // Jangan tandai last_run kalau gagal — biar bisa di-retry
                     }
 
                     // Beri jeda 4 detik agar urutan publikasi story rapi di IG & WA (Open -> Disclaimer -> Rivera Ready)
@@ -2077,7 +2133,7 @@ async function notifyCustomerOnStatusChange(trxOrId, newStatus, customNote = '')
                     (customNote ? `• *Catatan Admin:* ${customNote}\n` : "") +
                     `\nAPI Key Anda telah aktif selama 30 hari. Silakan gunakan untuk integrasi pembayaran QRIS otomatis di website / bot Anda.\n\n` +
                     `Kelola Gateway: https://ry-itsolutionts.web.id/gateway\n` +
-                    `Cetak Nota Pembayaran: https://ry-itsolutionts.web.id/history?tab=completed` +
+                    `Cetak Nota Pembayaran: https://ry-itsolutionts.web.id/history?tab=completed&ulasan=1` +
                     BOT_FOOTER;
             } else if (newStatus === "failed" || newStatus === "cancelled") {
                 custMsg = `Halo Kak *${userName}*!\n\n` +
@@ -2132,7 +2188,7 @@ async function notifyCustomerOnStatusChange(trxOrId, newStatus, customNote = '')
                     `• *Status:* Selesai / Terverifikasi Resmi\n` +
                     (customNote && !customNote.includes("Pesanan-mu telah berhasil") ? `• *Catatan:* ${customNote}\n` : "") +
                     `\nData IMEI Anda telah berhasil diperiksa dan diverifikasi oleh Server Pusat CEIR.\n\n` +
-                    `Lihat Rincian & Riwayat:\nhttps://ry-itsolutionts.web.id/history?tab=completed` +
+                    `Lihat Rincian & Riwayat:\nhttps://ry-itsolutionts.web.id/history?tab=completed&ulasan=1` +
                     BOT_FOOTER;
             } else if (newStatus === "failed" || newStatus === "cancelled") {
                 custMsg = `Halo Kak *${userName}*!\n\n` +
@@ -2171,7 +2227,7 @@ async function notifyCustomerOnStatusChange(trxOrId, newStatus, customNote = '')
                     `• *Status:* Selesai / Sinyal Aktif\n` +
                     (customNote ? `• *Catatan Admin:* ${customNote}\n` : "") +
                     `\nSilakan restart HP Anda atau lepas-pasang kartu SIM untuk mengaktifkan jaringan sinyal.\n\n` +
-                    `Cetak Nota & Kartu Garansi: https://ry-itsolutionts.web.id/history?tab=completed` +
+                    `Cetak Nota & Kartu Garansi: https://ry-itsolutionts.web.id/history?tab=completed&ulasan=1` +
                     BOT_FOOTER;
             } else if (newStatus === "failed" || newStatus === "cancelled") {
                 custMsg = `Halo Kak *${userName}*!\n\n` +
@@ -3033,10 +3089,12 @@ async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit =
     try {
         const recipientPhones = await getBroadcastRecipients("all");
         const statusJidSet = new Set();
+        const validRecipients = [];
         recipientPhones.forEach(p => {
             const c = cleanPhone(p);
             if (c && isValidIndonesianMobile(c)) {
                 statusJidSet.add(`${c}@s.whatsapp.net`);
+                validRecipients.push(`${c}@s.whatsapp.net`);
             }
         });
 
@@ -3053,22 +3111,51 @@ async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit =
 
         const statusJidList = Array.from(statusJidSet);
 
-        const isVideo = isVideoExplicit || (mediaBuffer && mediaBuffer.length > 8 && mediaBuffer.toString('utf8', 4, 8) === 'ftyp');
+        // Validasi: batasi statusJidList hanya ke JID yang benar-benar ada di store Baileys (USync)
+        // Tanpa validasi ini, WhatsApp silent-drops penerima tidak dikenal → story tidak tampil di phone user
+        let verifiedJidList = statusJidList;
+        try {
+            if (sock && typeof sock.store?.contacts === 'object') {
+                verifiedJidList = statusJidList.filter(jid => sock.store.contacts[jid]);
+                if (verifiedJidList.length !== statusJidList.length) {
+                    logWABot(`[WABot Story] ⚠️ Validasi JID: ${verifiedJidList.length}/${statusJidList.length} JID terverifikasi di store. ${statusJidList.length - verifiedJidList.length} JID tidak dikenal (akan di-drop WA).`, "warn");
+                }
+            } else if (sock && typeof sock.store?.contacts === 'function') {
+                // store.contacts bisa berupa fungsi getter di versi Baileys tertentu
+                verifiedJidList = [];
+                for (const jid of statusJidList) {
+                    try {
+                        const contact = await sock.store.contacts(jid);
+                        if (contact) verifiedJidList.push(jid);
+                    } catch {}
+                }
+                if (verifiedJidList.length !== statusJidList.length) {
+                    logWABot(`[WABot Story] ⚠️ Validasi JID (async): ${verifiedJidList.length}/${statusJidList.length} JID terverifikasi di store.`, "warn");
+                }
+            } else {
+                logWABot(`[WABot Story] ⚠️ sock.store.contacts tidak tersedia — melewati validasi JID (risiko silent-drop WA).`, "warn");
+            }
+        } catch (vErr) {
+            logWABot(`[WABot Story] ⚠️ Gagal validasi JID (lanjut tanpa filter): ${vErr.message}`, "warn");
+        }
 
-        logWABot(`[WABot Story] Mengunggah Story WhatsApp (${isVideo ? 'Video MP4 bersuara musik' : 'Foto JPEG'}) ke status@broadcast (${statusJidList.length} kontak, tagged ${adminMentions.length} admin)...`, "info");
+        const isVideo = isVideoExplicit || (mediaBuffer && mediaBuffer.length > 8 && mediaBuffer.toString('utf8', 4, 8) === 'ftyp');
+        const mediaTypeLabel = isVideo ? 'Video MP4' : 'Foto JPEG';
+
+        logWABot(`[WABot Story] Mengunggah Story WhatsApp (${mediaTypeLabel}) ke status@broadcast (${verifiedJidList.length} penerima terverifikasi + ${adminMentions.length} admin tagged)...`, "info");
 
         const messagePayload = isVideo
-            ? { 
-                video: mediaBuffer, 
-                mimetype: "video/mp4", 
+            ? {
+                video: mediaBuffer,
+                mimetype: "video/mp4",
                 caption: caption || "",
                 mentions: adminMentions,
                 contextInfo: {
                     mentionedJid: adminMentions
                 }
               }
-            : { 
-                image: mediaBuffer, 
+            : {
+                image: mediaBuffer,
                 caption: caption || "",
                 mentions: adminMentions,
                 contextInfo: {
@@ -3077,34 +3164,83 @@ async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit =
               };
 
         const sent = await sock.sendMessage("status@broadcast", messagePayload, {
-            statusJidList: statusJidList
+            statusJidList: verifiedJidList
         });
 
         if (sent?.key?.id) {
             botSentMsgIds.add(sent.key.id);
         }
 
-        // Kirimkan notifikasi ke kedua nomor admin bahwa Story telah terbit dan mereka ditandai (tagged)
-        for (const adminJid of adminMentions) {
-            try {
-                await sendAndStoreMessage(adminJid, {
-                    text: `📢 *STORY WHATSAPP TERBARU TELAH TERBIT!*\n` +
-                          `━━━━━━━━━━━━━━━━━━━━━━\n` +
-                          `Nomor WhatsApp Anda telah ditandai (*tagged / mention*) dalam Story ini.\n` +
-                          `Silakan buka tab *Pembaruan / Status* di WhatsApp Anda untuk membagikan ulang (*Repost*) ke status Anda! 🙌\n` +
-                          `━━━━━━━━━━━━━━━━━━━━━━\n` +
-                          `_ID Story: ${sent?.key?.id || '-'}_`
-                });
-            } catch (notifErr) {
-                console.warn(`[WABot Story] Gagal kirim notif mention ke ${adminJid}:`, notifErr.message);
+        // VERIFIKASI NYATA: sent.key.id SAJA BUKAN BUKTI SUKSES.
+        // status@broadcast return OK meski 0 penerima terkirim (silent-drop WA).
+        // Anggap sukses HANYA jika minimal 1 penerima non-admin terverifikasi.
+        const verifiedNonAdmin = verifiedJidList.filter(jid => !adminMentions.includes(jid));
+        const verificationFailed = verifiedNonAdmin.length === 0;
+
+        // Catat riwayat percobaan story ke DB (time, recipient count, result, error)
+        try {
+            const attemptRecord = {
+                time: new Date().toISOString(),
+                mediaType: isVideo ? 'video' : 'image',
+                recipientCount: verifiedJidList.length,
+                verifiedNonAdminCount: verifiedNonAdmin.length,
+                statusJidCount: statusJidList.length,
+                success: !verificationFailed && Boolean(sent?.key?.id),
+                storyId: sent?.key?.id || null,
+                error: verificationFailed ? 'NO_VERIFIED_RECIPIENTS' : (sent?.key?.id ? null : 'NO_MESSAGE_ID'),
+                caption: caption?.slice(0, 120)
+            };
+            await dbRun(
+                `INSERT INTO settings (key, value) VALUES (?, ?)`,
+                [`wa_story_attempt_${Date.now()}`, JSON.stringify(attemptRecord)]
+            );
+        } catch (logErr) {
+            console.warn('[WABot Story] Gagal simpan riwayat attempt:', logErr.message);
+        }
+
+        // JANGAN kirim DM "TELAH TERBIT" ke admin jika verifikasi gagal
+        if (!verificationFailed) {
+            for (const adminJid of adminMentions) {
+                try {
+                    await sendAndStoreMessage(adminJid, {
+                        text: `📢 *STORY WHATSAPP TERBARU TELAH TERBIT!*\n` +
+                              `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                              `Nomor WhatsApp Anda telah ditandai (*tagged / mention*) dalam Story ini.\n` +
+                              `Silakan buka tab *Pembaruan / Status* di WhatsApp Anda untuk membagikan ulang (*Repost*) ke status Anda! 🙌\n` +
+                              `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                              `_ID Story: ${sent?.key?.id || '-'}_`
+                    });
+                } catch (notifErr) {
+                    console.warn(`[WABot Story] Gagal kirim notif mention ke ${adminJid}:`, notifErr.message);
+                }
             }
+        } else {
+            logWABot(`[WABot Story] ❌ Verifikasi gagal: 0 penerima terverifikasi non-admin. DM admin DITAHAN.`, "error");
+        }
+
+        if (verificationFailed) {
+            logWABot(`❌ Story WhatsApp GAGAL terverifikasi (0 penerima valid): ${mediaTypeLabel}, ID: ${sent?.key?.id || '-'}`, "error");
+            return { status: false, reason: 'NO_VERIFIED_RECIPIENTS', id: sent?.key?.id, isVideo, mediaType: mediaTypeLabel };
         }
 
         logWABot(`✅ Story WhatsApp Bot berhasil diposting ke status@broadcast! ID: ${sent?.key?.id || "-"}`, "info");
-        return { status: true, id: sent?.key?.id, isVideo, taggedAdmins: adminMentions };
+        return { status: true, id: sent?.key?.id, isVideo, mediaType: mediaTypeLabel, taggedAdmins: adminMentions };
     } catch (err) {
         logWABot(`❌ Gagal posting Story WhatsApp: ${err.message}`, "error");
         console.error("[WABot Story] Gagal publish story WA:", err);
+        // Catat gagal ke riwayat
+        try {
+            await dbRun(
+                `INSERT INTO settings (key, value) VALUES (?, ?)`,
+                [`wa_story_attempt_${Date.now()}`, JSON.stringify({
+                    time: new Date().toISOString(),
+                    mediaType: isVideoExplicit ? 'video' : 'image',
+                    success: false,
+                    error: err.message,
+                    caption: caption?.slice(0, 120)
+                })]
+            );
+        } catch {}
         throw err;
     }
 }

@@ -382,11 +382,12 @@ function initSchedulers() {
 
                 console.log(`[Scheduler][IGStoryOpen] Menjalankan jadwal Story Open (${scheduledTime} WIB) pada ${todayDateWIB}...`);
 
-                // Tandai tanggal hari ini agar tidak dipanggil ulang pada menit yang sama
-                await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('ig_open_story_last_run', ?)", [todayDateWIB]);
-
                 const { publishOpenStory } = require('../services/igDirectService');
                 const postResult = await publishOpenStory();
+
+                // BUG A(e): Tulis ig_open_story_last_run HANYA SETELAH publishOpenStory() SUKSES
+                // Kalau gagal, hari itu tetap bisa diulang (atau retry jam berikutnya)
+                await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('ig_open_story_last_run', ?)", [todayDateWIB]);
 
                 console.log('[Scheduler][IGStoryOpen] ✅ Story Open berhasil diposting otomatis ke Instagram:', postResult?.mediaId);
 
@@ -476,6 +477,39 @@ function initSchedulers() {
         }
     }, { scheduled: true, timezone: 'Asia/Jakarta' });
 
+    // 7b. Jadwal Buka Otomatis Rivera
+    // Rivera tidak selalu mengirim "ON" lagi di jam yang dijanjikan (mis. "3B FAST ON JAM 12:00 WIB").
+    // Tick ini membuka paketnya sendiri begitu jam WIB yang dijanjikan tercapai.
+    cron.schedule('* * * * *', async () => {
+        try {
+            const autoSyncRow = await dbGet("SELECT value FROM settings WHERE key = 'rivera_auto_sync_status'");
+            if (autoSyncRow && autoSyncRow.value === 'false') return;
+
+            const nowWib = new Date(Date.now() + 7 * 3600000);
+            const hhmm = `${String(nowWib.getUTCHours()).padStart(2, '0')}:${String(nowWib.getUTCMinutes()).padStart(2, '0')}`;
+
+            const openAtRows = await dbAll("SELECT key, value FROM settings WHERE key IN ('rivera_fast_open_at', 'rivera_1b_open_at', 'rivera_exe_open_at')");
+            const openAtMap = (openAtRows || []).reduce((acc, r) => ({ ...acc, [r.key]: String(r.value || '').trim() }), {});
+
+            const targets = [
+                { at: 'rivera_fast_open_at', status: 'rivera_fast_realtime_status', label: '3B SF Fast' },
+                { at: 'rivera_1b_open_at', status: 'rivera_1b_realtime_status', label: '1B Digipos' },
+                { at: 'rivera_exe_open_at', status: 'rivera_exe_realtime_status', label: '3B IND EXE' }
+            ];
+
+            for (const t of targets) {
+                const at = openAtMap[t.at];
+                if (!at) continue;
+                if (at.replace('.', ':') !== hhmm) continue;
+                await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES (?, 'open')", [t.status]);
+                await dbRun("DELETE FROM settings WHERE key = ?", [t.at]);
+                console.log(`[Scheduler][RiveraOpenAt] ✅ Jadwal tiba (${hhmm} WIB): ${t.label} dibuka otomatis.`);
+            }
+        } catch (e) {
+            console.error('[Scheduler][RiveraOpenAt] Error:', e.message);
+        }
+    }, { scheduled: true, timezone: 'Asia/Jakarta' });
+
     // 8. Batas Pengaman Malam Rivera (Fail-safe Night Cutoff Pukul 22.00 WIB)
     // Jika Rivera lupa menginfokan tutup di grup, paket Fast, 1B & EXE otomatis diset CLOSED di web
     cron.schedule('0 22 * * *', async () => {
@@ -484,6 +518,8 @@ function initSchedulers() {
             await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_fast_realtime_status', 'closed')");
             await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_1b_realtime_status', 'closed')");
             await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_exe_realtime_status', 'closed')");
+            // Jadwal buka hari ini sudah lewat — bersihkan agar tidak menyangkut ke hari berikutnya.
+            await dbRun("DELETE FROM settings WHERE key IN ('rivera_fast_open_at', 'rivera_1b_open_at', 'rivera_exe_open_at')").catch(() => {});
             console.log('[Scheduler][RiveraNightCutoff] ✅ Status Fast, 1B & EXE di database berhasil diset CLOSED.');
         } catch (e) {
             console.error('[Scheduler][RiveraNightCutoff] Error:', e.message);
@@ -498,6 +534,8 @@ function initSchedulers() {
             await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_fast_realtime_status', 'auto')");
             await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_1b_realtime_status', 'auto')");
             await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_exe_realtime_status', 'auto')");
+            // Jadwal buka kemarin tidak boleh terbawa ke hari baru.
+            await dbRun("DELETE FROM settings WHERE key IN ('rivera_fast_open_at', 'rivera_1b_open_at', 'rivera_exe_open_at')").catch(() => {});
             console.log('[Scheduler][RiveraMidnightReset] ✅ Status Fast, 1B & EXE di database berhasil direset ke AUTO.');
         } catch (e) {
             console.error('[Scheduler][RiveraMidnightReset] Error:', e.message);
