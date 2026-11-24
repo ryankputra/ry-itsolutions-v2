@@ -1325,8 +1325,11 @@ async function publishOpenStory(options = {}) {
                     `🗓️ ${dateWIB}\n` +
                     `⏰ Buka: ${timestampWIB} WIB\n\n` +
                     `🌐 https://ry-itsolutionts.web.id`;
-                const mediaToSend1 = results.openStory.instagram?.videoBuffer || openBuffer;
-                const isVid1 = Boolean(results.openStory.instagram?.videoBuffer);
+                // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
+                // BUG A(c): generateStoryVideo() bisa null → label media jujur, jangan klaim "video bermusik" kalau foto
+                const videoData1 = await generateStoryVideo(openBuffer, openTrack);
+                const mediaToSend1 = videoData1?.videoBuffer || openBuffer;
+                const isVid1 = Boolean(videoData1?.videoBuffer);
                 results.openStory.whatsapp = await publishWhatsAppStory(mediaToSend1, captionStory1, isVid1);
             }
         } catch (waErr) {
@@ -1355,8 +1358,11 @@ async function publishOpenStory(options = {}) {
                     `✅ *Hanya tersedia opsi 1 Bulan & 3 Bulan* (All Operator).\n\n` +
                     `🛡️ Garansi penuh & nota transaksi digital resmi.\n` +
                     `🌐 https://ry-itsolutionts.web.id`;
-                const mediaToSend2 = results.disclaimerStory.instagram?.videoBuffer || disclaimerBuffer;
-                const isVid2 = Boolean(results.disclaimerStory.instagram?.videoBuffer);
+                // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
+                // BUG A(c): generateStoryVideo() bisa null → label media jujur, jangan klaim "video bermusik" kalau foto
+                const videoData2 = await generateStoryVideo(disclaimerBuffer, disclaimerTrack);
+                const mediaToSend2 = videoData2?.videoBuffer || disclaimerBuffer;
+                const isVid2 = Boolean(videoData2?.videoBuffer);
                 results.disclaimerStory.whatsapp = await publishWhatsAppStory(mediaToSend2, captionStory2, isVid2);
             }
         } catch (waErr2) {
@@ -1486,8 +1492,11 @@ async function publishNewServiceStory(serviceName, speed = "fast") {
                 `🛡️ *Semua Bergaransi Tanpa Drama*\n` +
                 `🗓️ ${dateWIB} (${timestampWIB} WIB)\n\n` +
                 `🌐 Cek & Order Sekarang: https://ry-itsolutionts.web.id/add-roamer`;
-            const mediaToSend = results.instagram?.videoBuffer || buffer;
-            const isVid = Boolean(results.instagram?.videoBuffer);
+            // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
+            // BUG A(c): generateStoryVideo() bisa null → label media jujur
+            const videoData = await generateStoryVideo(buffer, track);
+            const mediaToSend = videoData?.videoBuffer || buffer;
+            const isVid = Boolean(videoData?.videoBuffer);
             results.whatsapp = await publishWhatsAppStory(mediaToSend, caption, isVid);
         }
     } catch (waErr) {
@@ -1670,6 +1679,29 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
                                     parsed.badge = "LIVE SERVER UPDATE";
                                 }
                             }
+                            // Jalur Gemini: jadwal buka per layanan tetap diambil dari teks asli,
+                            // sehingga "3B FAST ON JAM 12:00 WIB" tidak hilang jadi cut-off SLOW.
+                            try {
+                                const { extractServiceOpenSchedules } = require('./riveraScheduleParser');
+                                const sched = extractServiceOpenSchedules(safeText);
+                                parsed.openSchedules = sched.schedules;
+                                if (Array.isArray(parsed.services)) {
+                                    for (const svc of ['fast', 'oneB', 'exe']) {
+                                        const at = sched.schedules[svc];
+                                        if (!at) continue;
+                                        const hit = parsed.services.find(s => {
+                                            const n = (s.name || '').toUpperCase();
+                                            if (svc === 'fast') return n.includes('FAST') && !n.includes('EXE') && !n.includes('IND');
+                                            if (svc === 'oneB') return n.includes('1B') || n.includes('DIGIPOS');
+                                            return n.includes('EXE') || n.includes('IND');
+                                        });
+                                        if (hit && hit.status !== 'CLOSED') {
+                                            hit.openAt = at;
+                                            hit.desc = `${hit.desc ? hit.desc + ' • ' : ''}Buka ${at} WIB`;
+                                        }
+                                    }
+                                }
+                            } catch (schedErr) {}
                             return parsed;
                         }
                     }
@@ -1690,14 +1722,17 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
     const upper = safeText.toUpperCase();
     const lines = safeText.split(/\r?\n|[;,]+/).map(l => l.trim()).filter(Boolean);
 
-    // Ekstrak jam cut-off / last list
+    // Ekstrak jam cut-off / last list.
+    // Baris layanan yang menyebut jam buka (mis. "3B FAST ON JAM 12:00 WIB") DIKECUALIKAN,
+    // supaya jam jadwal buka Fast/1B/EXE tidak tertelan jadi cut-off 3B SLOW.
     let fallbackCutoffTime = null;
     let fallbackCutoffDay = null;
-    const cutoffMatch = safeText.match(/(?:cut\s*off|close\s*list|last\s*list|list\s*sampai)\s*(?:besok\s*(?:pagi|siang|sore|malem|malam)?\s*)?(?:jam\s*)?(\d{1,2})[.:](\d{2})/i)
-        || safeText.match(/(?:jam\s*)(\d{1,2})[.:](\d{2})\s*wib/i);
-    if (cutoffMatch) {
-        fallbackCutoffTime = `${cutoffMatch[1].padStart(2, '0')}:${cutoffMatch[2]}`;
-        fallbackCutoffDay = /besok/i.test(safeText) ? 'tomorrow' : 'today';
+    const { extractServiceOpenSchedules, extractSlowCutoff } = require('./riveraScheduleParser');
+    const openSchedules = extractServiceOpenSchedules(safeText);
+    const slowCutoff = extractSlowCutoff(safeText, openSchedules.scheduledLines);
+    if (slowCutoff) {
+        fallbackCutoffTime = slowCutoff.time;
+        fallbackCutoffDay = slowCutoff.day;
     }
 
     const isCloseAll = /(CLOSE\s*ALL|OFF\s*SEMUA|TUTUP\s*SEMUA|FULL\s*SEMUA|STOP\s*ORDER|KLOTER\s*CLOSED|SEMUA\s*OFF)/i.test(upper);
@@ -1849,6 +1884,7 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
         services: finalServices,
         cutoffTime: fallbackCutoffTime,
         cutoffDay: fallbackCutoffDay,
+        openSchedules: openSchedules.schedules,
         note: finalNote
     };
 }
