@@ -944,7 +944,7 @@ router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenti
                 let pkg = targetPkgId ? await dbGet("SELECT * FROM imei_packages WHERE id = ?", [targetPkgId]) : null;
                 if (pkg) {
                     // Cek sinkronisasi real-time Rivera & jam operasional per-paket (WIB)
-                    const settingsRows = await dbAll("SELECT key, value FROM settings WHERE key IN ('rivera_auto_sync_status', 'rivera_night_cutoff_hour', 'rivera_fast_realtime_status', 'rivera_1b_realtime_status', 'rivera_exe_realtime_status')");
+                    const settingsRows = await dbAll("SELECT key, value FROM settings WHERE key IN ('rivera_auto_sync_status', 'rivera_night_cutoff_hour', 'rivera_fast_realtime_status', 'rivera_1b_realtime_status', 'rivera_exe_realtime_status', 'rivera_fast_open_at', 'rivera_1b_open_at', 'rivera_exe_open_at')");
                     const settingsMap = (settingsRows || []).reduce((acc, r) => ({ ...acc, [r.key]: r.value }), {});
                     const isAutoSync = settingsMap.rivera_auto_sync_status !== 'false';
                     const nightCutoff = parseInt(settingsMap.rivera_night_cutoff_hour || '22', 10);
@@ -952,8 +952,26 @@ router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenti
                     const oneBRealtime = settingsMap.rivera_1b_realtime_status || 'auto';
                     const exeRealtime = settingsMap.rivera_exe_realtime_status || 'auto';
 
-                    const wibHour = (new Date(Date.now() + 7 * 3600000)).getUTCHours();
+                    const wibDate = new Date(Date.now() + 7 * 3600000);
+                    const wibHour = wibDate.getUTCHours();
+                    const wibMinutes = wibHour * 60 + wibDate.getUTCMinutes();
                     const isNightCutoffPassed = wibHour >= nightCutoff || wibHour < 9;
+
+                    // Jadwal buka yang dijanjikan Rivera, mis. "3B FAST ON JAM 12:00 WIB".
+                    // null = tidak ada jadwal, true = jam sudah tiba, false = masih menunggu.
+                    const scheduledOpenState = (svc) => {
+                        const at = String(settingsMap[`rivera_${svc}_open_at`] || '').trim();
+                        const m = at.match(/^(\d{1,2})[.:](\d{2})$/);
+                        if (!m) return null;
+                        const mins = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+                        if (!Number.isFinite(mins)) return null;
+                        return wibMinutes >= mins;
+                    };
+                    const scheduledOpenHour = (svc) => {
+                        const at = String(settingsMap[`rivera_${svc}_open_at`] || '').trim();
+                        const m = at.match(/^(\d{1,2})[.:](\d{2})$/);
+                        return m ? `${String(m[1]).padStart(2, '0')}:${m[2]}` : null;
+                    };
 
                     const oh = pkg.open_hour === undefined || pkg.open_hour === null ? null : Number(pkg.open_hour);
                     const ch = pkg.close_hour === undefined || pkg.close_hour === null ? null : Number(pkg.close_hour);
@@ -971,11 +989,19 @@ router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenti
                         if (isSlowOnly) {
                             // 3B Slow selalu menerima order 24 jam via web & WA
                         } else if (isExe) {
+                            const sched = scheduledOpenState('exe');
                             if (isNightCutoffPassed) {
                                 return res.status(400).json({
                                     status: false,
                                     message: `Paket ${pkg.duration || ''} sedang tutup (Batas pengaman malam pukul 22.00 WIB).`
                                 });
+                            } else if (sched === false) {
+                                return res.status(400).json({
+                                    status: false,
+                                    message: `Paket ${pkg.duration || ''} sedang tutup. Buka jam ${scheduledOpenHour('exe')} WIB sesuai jadwal server.`
+                                });
+                            } else if (sched === true) {
+                                // Jam jadwal Rivera sudah tiba
                             } else if (exeRealtime === 'closed') {
                                 return res.status(400).json({
                                     status: false,
@@ -990,11 +1016,19 @@ router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenti
                                 });
                             }
                         } else if (isFast) {
+                            const sched = scheduledOpenState('fast');
                             if (isNightCutoffPassed) {
                                 return res.status(400).json({
                                     status: false,
                                     message: `Paket ${pkg.duration || ''} sedang tutup (Batas pengaman malam pukul 22.00 WIB).`
                                 });
+                            } else if (sched === false) {
+                                return res.status(400).json({
+                                    status: false,
+                                    message: `Paket ${pkg.duration || ''} sedang tutup. Buka jam ${scheduledOpenHour('fast')} WIB sesuai jadwal server.`
+                                });
+                            } else if (sched === true) {
+                                // Jam jadwal Rivera sudah tiba
                             } else if (fastRealtime === 'closed') {
                                 return res.status(400).json({
                                     status: false,
@@ -1009,11 +1043,19 @@ router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenti
                                 });
                             }
                         } else if (is1B) {
+                            const sched = scheduledOpenState('oneB');
                             if (isNightCutoffPassed) {
                                 return res.status(400).json({
                                     status: false,
                                     message: `Paket ${pkg.duration || ''} sedang tutup (Batas pengaman malam pukul 22.00 WIB).`
                                 });
+                            } else if (sched === false) {
+                                return res.status(400).json({
+                                    status: false,
+                                    message: `Paket ${pkg.duration || ''} sedang tutup. Buka jam ${scheduledOpenHour('oneB')} WIB sesuai jadwal server.`
+                                });
+                            } else if (sched === true) {
+                                // Jam jadwal server Rivera sudah tiba
                             } else if (oneBRealtime === 'closed') {
                                 return res.status(400).json({
                                     status: false,
