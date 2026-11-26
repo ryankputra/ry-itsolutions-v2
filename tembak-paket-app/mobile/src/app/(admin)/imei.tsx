@@ -735,7 +735,7 @@ export default function AdminImeiScreen() {
                       <View style={[styles.wholesaleBadge, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
                         <Tag size={12} color={colors.success} style={{ marginRight: 4 }} />
                         <Text style={[styles.wholesaleText, { color: colors.success }]}>
-                          Grosir min {spPrices.wholesale_min_qty || 2} IMEI aktif
+                          Harga Reseller min {spPrices.wholesale_min_qty || 2} IMEI aktif
                         </Text>
                       </View>
                     )}
@@ -887,7 +887,7 @@ export default function AdminImeiScreen() {
 
               <View style={[styles.toggleRow, { borderColor: colors.border, marginVertical: 12 }]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.toggleTitle, { color: colors.text }]}>Harga Grosir Multi-IMEI</Text>
+                  <Text style={[styles.toggleTitle, { color: colors.text }]}>Harga Reseller Multi-IMEI</Text>
                   <Text style={[styles.toggleDesc, { color: colors.textMuted }]}>Diskon otomatis pemesanan &ge; 2 IMEI</Text>
                 </View>
                 <Switch
@@ -900,7 +900,7 @@ export default function AdminImeiScreen() {
 
               {newImeiPkg.wholesale_enabled && (
                 <View style={{ padding: 12, backgroundColor: colors.surfaceElevated, borderRadius: 12, marginBottom: 12 }}>
-                  <Text style={[styles.miniLabel, { color: colors.textMuted }]}>Harga Grosir Satuan Fast (Rp)</Text>
+                  <Text style={[styles.miniLabel, { color: colors.textMuted }]}>Harga Reseller Satuan Fast (Rp)</Text>
                   <TextInput
                     style={[styles.miniInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text, marginBottom: 8 }]}
                     placeholder="Contoh: 130000"

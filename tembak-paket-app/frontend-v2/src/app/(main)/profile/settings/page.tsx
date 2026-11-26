@@ -494,8 +494,8 @@ function SettingsContent() {
                 {user?.role === "admin"
                   ? "Akun memiliki hak akses administrator penuh untuk mengelola konfigurasi, layanan, dan transaksi sistem."
                   : user?.role === "reseller"
-                  ? "Akun Anda aktif sebagai Mitra Reseller. Anda berhak mendapatkan harga grosir terendah dan antrean pemrosesan prioritas utama."
-                  : "Akun Anda berstatus Member Reguler. Tingkatkan status akun Anda ke Mitra Reseller untuk mendapatkan harga grosir Add Roamer dan pengerjaan prioritas antrean pertama."}
+                  ? "Akun Anda aktif sebagai Mitra Reseller. Anda berhak mendapatkan harga reseller terendah dan antrean pemrosesan prioritas utama."
+                  : "Akun Anda berstatus Member Reguler. Tingkatkan status akun Anda ke Mitra Reseller untuk mendapatkan harga reseller Add Roamer dan pengerjaan prioritas antrean pertama."}
               </p>
 
               {user?.role !== "admin" && user?.role !== "reseller" && (

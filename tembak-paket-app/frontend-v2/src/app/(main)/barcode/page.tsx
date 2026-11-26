@@ -498,7 +498,7 @@ export default function BarcodePage() {
             <div>
               <Input
                 label="Nomor IMEI Kedua (SIM 2) - Opsional"
-                placeholder={maintenanceStatus?.isMaintenance ? "Layanan Generator Barcode sedang pemeliharaan..." : "Contoh: 358921098765433 (Dual SIM)"}
+                placeholder={maintenanceStatus?.isMaintenance ? "Layanan Generator Barcode sedang pemeliharaan..." : "Contoh: 358921098765433"}
                 value={imei2}
                 onChange={e => setImei2(e.target.value.replace(/\D/g, ''))}
                 maxLength={15}

@@ -59,7 +59,7 @@ export function ProductDetailView({
     "Pembelian di atas senilai Rp 100.000 mendapatkan gratis voucher diskon koin Ry.",
     "Add Roamer dengan garansi masa aktif sinyal hingga 3 bulan untuk iPhone & Android Inter.",
     "Proses otomatis terpantau sistem 24 jam dengan opsi pembayaran QRIS Instant tanpa top up.",
-    "Tanyakan stok / bantuan CS WhatsApp jika butuh pemrosesan jumlah banyak / grosir.",
+    "Tanyakan stok / bantuan CS WhatsApp jika butuh pemrosesan jumlah banyak / harga reseller.",
     "Pastikan nomor IMEI target diisi dengan benar (15 digit angka).",
   ],
   serviceType = "imei",

@@ -124,11 +124,11 @@ function generatePriceBanner({ packages, storeName = 'Ry-ITSolutions' }) {
         parts.push(`<text x="${priceX}" y="${rowY + 62}" font-family="-apple-system, 'SF Pro Display', Arial, sans-serif" font-size="40" font-weight="800" fill="#1D1D1F" text-anchor="end">${esc(rupiah(it.price))}</text>`);
 
         if (it.wholesale) {
-            const wsW = 262;
+            const wsW = 360;
             const wsX = priceX - wsW;
             const wsY = rowY + 6;
             parts.push(`<rect x="${wsX}" y="${wsY}" width="${wsW}" height="34" rx="17" fill="#0071E3" opacity="0.1"/>`);
-            parts.push(`<text x="${wsX + wsW / 2}" y="${wsY + 23}" font-family="-apple-system, 'SF Pro Text', Arial, sans-serif" font-size="20" font-weight="600" fill="#0071E3" text-anchor="middle">Grosir ≥${it.wsQty} ${esc(rupiah(it.wholesale))}</text>`);
+            parts.push(`<text x="${wsX + wsW / 2}" y="${wsY + 23}" font-family="-apple-system, 'SF Pro Text', Arial, sans-serif" font-size="20" font-weight="600" fill="#0071E3" text-anchor="middle">Harga Reseller ≥${it.wsQty} ${esc(rupiah(it.wholesale))}</text>`);
         }
 
         if (i < items.length - 1) {

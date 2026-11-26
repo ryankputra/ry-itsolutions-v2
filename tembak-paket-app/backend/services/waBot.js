@@ -4382,7 +4382,7 @@ async function notifyPriceChangeBroadcast({ packages, customMessage, targetMode 
             const ws = sp.wholesale_prices && sp.wholesale_prices[id];
             if (ws && Number(ws) > 0 && Number(ws) < price) {
                 const wsQty = sp.wholesale_min_qty || 2;
-                line += ` (Grosir ≥${wsQty}: Rp ${Number(ws).toLocaleString('id-ID')})`;
+                line += ` (Harga Reseller ≥${wsQty}: Rp ${Number(ws).toLocaleString('id-ID')})`;
             }
             lines.push(line);
         }

@@ -852,7 +852,7 @@ export default function AdminImeiPage() {
                           {spPrices?.wholesale_enabled && (
                             <div className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-300/60 dark:border-emerald-800/40 w-fit">
                               <Tag className="w-3 h-3" />
-                              <span>Grosir &ge;{spPrices.wholesale_min_qty || 2} IMEI:
+                              <span>Harga Reseller &ge;{spPrices.wholesale_min_qty || 2} IMEI:
                                 {spPrices.wholesale_prices?.fast ? ` Fast Rp ${Number(spPrices.wholesale_prices.fast).toLocaleString("id-ID")}` : ""}
                                 {spPrices.wholesale_prices?.slow ? ` Slow Rp ${Number(spPrices.wholesale_prices.slow).toLocaleString("id-ID")}` : ""}
                               </span>
@@ -1063,8 +1063,8 @@ export default function AdminImeiPage() {
                   <div className="flex items-center gap-2">
                     <Tag className="w-4 h-4 text-emerald-600" />
                     <div>
-                      <span className="font-bold text-xs text-ink block">Harga Grosir Multi-IMEI</span>
-                      <span className="text-[10px] text-ink-muted">Diskon untuk pesanan minimal 2 IMEI (Dual SIM / Multi-Device)</span>
+                      <span className="font-bold text-xs text-ink block">Harga Reseller Multi-IMEI</span>
+                      <span className="text-[10px] text-ink-muted">Diskon untuk pesanan minimal 2 IMEI (multi-perangkat)</span>
                     </div>
                   </div>
                   <input
@@ -1092,7 +1092,7 @@ export default function AdminImeiPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <p className="text-[11px] font-bold text-ink">Harga Grosir Satuan (Rp/IMEI):</p>
+                      <p className="text-[11px] font-bold text-ink">Harga Reseller Satuan (Rp/IMEI):</p>
                       <div className="grid grid-cols-3 gap-2">
                         {SPEED_TIERS.map((s) => (
                           <div key={s.id} className="space-y-1">
@@ -1517,8 +1517,8 @@ export default function AdminImeiPage() {
                   <div className="flex items-center gap-2">
                     <Tag className="w-4 h-4 text-emerald-600" />
                     <div>
-                      <span className="font-bold text-xs text-ink block">Harga Grosir Multi-IMEI</span>
-                      <span className="text-[10px] text-ink-muted">Diskon untuk pesanan minimal 2 IMEI (Dual SIM / Multi-Device)</span>
+                      <span className="font-bold text-xs text-ink block">Harga Reseller Multi-IMEI</span>
+                      <span className="text-[10px] text-ink-muted">Diskon untuk pesanan minimal 2 IMEI (multi-perangkat)</span>
                     </div>
                   </div>
                   <input
@@ -1546,7 +1546,7 @@ export default function AdminImeiPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <p className="text-[11px] font-bold text-ink">Harga Grosir Satuan (Rp/IMEI):</p>
+                      <p className="text-[11px] font-bold text-ink">Harga Reseller Satuan (Rp/IMEI):</p>
                       <div className="grid grid-cols-3 gap-2">
                         {SPEED_TIERS.map((s) => (
                           <div key={s.id} className="space-y-1">

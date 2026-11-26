@@ -293,7 +293,7 @@ export default function BarcodeScreen() {
             />
           </View>
 
-          {/* Barcode Render 2 (if dual SIM) */}
+          {/* Barcode Render 2 (if IMEI kedua diisi) */}
           {barcode2Url && (
             <View style={[styles.barcodeWrapper, { marginTop: 12 }]}>
               <Image
@@ -356,7 +356,7 @@ export default function BarcodeScreen() {
         {/* Input IMEI 2 (Opsional) */}
         <View style={styles.inputGroup}>
           <Text style={[styles.inputLabel, { color: colors.ink }]}>
-            Nomor IMEI 2 (Opsional / Dual SIM)
+            Nomor IMEI 2 (Opsional)
           </Text>
           <View
             style={[
