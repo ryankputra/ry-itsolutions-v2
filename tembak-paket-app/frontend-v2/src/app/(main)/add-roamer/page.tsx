@@ -750,7 +750,7 @@ function UnblockImeiContent() {
       {/* Broadcast Announcement Banner */}
       <BroadcastBanner initialAnnouncements={announcements} />
 
-      {/* Promo Diskon Multi-IMEI & Dual SIM Banner */}
+      {/* Promo Diskon Multi-IMEI / Harga Reseller Banner */}
       {wholesalePromoInfo.hasPromo && (
         <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-primary/10 to-indigo-500/10 border border-emerald-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-start sm:items-center gap-3">
@@ -766,7 +766,7 @@ function UnblockImeiContent() {
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500 text-white">Hemat Otomatis</span>
               </div>
               <p className="text-[11px] text-ink-muted mt-0.5 leading-relaxed">
-                Daftarkan {wholesalePromoInfo.minQty} IMEI atau lebih untuk pemrosesan banyak IMEI sekaligus, otomatis dapat harga grosir spesial mulai dari <span className="font-bold text-emerald-600 dark:text-emerald-400">Rp {wholesalePromoInfo.minPrice.toLocaleString('id-ID')} / IMEI</span>.
+                Daftarkan {wholesalePromoInfo.minQty} IMEI atau lebih untuk memproses banyak IMEI sekaligus, otomatis dapat harga reseller spesial mulai dari <span className="font-bold text-emerald-600 dark:text-emerald-400">Rp {wholesalePromoInfo.minPrice.toLocaleString('id-ID')} / IMEI</span>.
               </p>
             </div>
           </div>
@@ -1253,13 +1253,13 @@ function UnblockImeiContent() {
                     required 
                   />
 
-                  {/* Panduan Multi-IMEI / Dual SIM */}
+                  {/* Panduan Multi-IMEI / Harga Reseller */}
                   <div className="flex items-start gap-2 p-3 rounded-2xl bg-primary/5 border border-primary/10 text-xs text-ink-muted">
                     <svg className="w-4 h-4 text-primary shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                     </svg>
                     <p className="text-[11px] leading-relaxed">
-                      <span className="font-bold text-ink">HP Dual SIM (IMEI 1 &amp; 2)?</span> Masukkan tiap 15 digit IMEI di baris baru (pisah enter/koma). <strong className="text-emerald-700 dark:text-emerald-400">Min. 2 IMEI = otomatis dapat harga grosir per IMEI</strong>.
+                      <span className="font-bold text-ink">Punya HP dengan 2 IMEI (IMEI 1 &amp; 2)?</span> Masukkan tiap 15 digit IMEI di baris baru (pisah enter/koma). <strong className="text-emerald-700 dark:text-emerald-400">Min. 2 IMEI = otomatis dapat harga reseller per IMEI</strong>.
                     </p>
                   </div>
 
@@ -1594,7 +1594,7 @@ function UnblockImeiContent() {
                         <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
-                        <span>Harga Grosir Multi-IMEI Diterapkan</span>
+                        <span>Harga Reseller Multi-IMEI Diterapkan</span>
                       </div>
                       <span className="font-extrabold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 rounded-full text-[10px]">
                         Hemat Rp {wholesaleSavings.toLocaleString("id-ID")}

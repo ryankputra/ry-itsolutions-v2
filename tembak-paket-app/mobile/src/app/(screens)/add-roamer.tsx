@@ -743,9 +743,9 @@ export default function AddRoamerScreen() {
                 <Tag size={18} color="#10b981" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.wholesaleTitle}>Harga Grosir Multi-IMEI (≥2)</Text>
+                <Text style={styles.wholesaleTitle}>Harga Reseller Multi-IMEI (≥2)</Text>
                 <Text style={styles.wholesaleDesc}>
-                  HP Dual SIM (IMEI 1 & 2)? Masukkan tiap 15 digit IMEI di baris terpisah. Min. 2 IMEI = otomatis dapat harga grosir per IMEI.
+                  Punya HP dengan 2 IMEI (IMEI 1 & 2)? Masukkan tiap 15 digit IMEI di baris terpisah. Min. 2 IMEI = otomatis dapat harga reseller per IMEI.
                 </Text>
               </View>
             </View>
@@ -775,7 +775,7 @@ export default function AddRoamerScreen() {
                 />
               </View>
               <Text style={{ fontSize: 11, color: colors.inkMuted, marginTop: 4 }}>
-                💡 HP Dual SIM (IMEI 1 & 2)? Masukkan tiap 15 digit IMEI di baris terpisah. Min. 2 IMEI = otomatis dapat harga grosir per IMEI.
+                💡 Punya HP dengan 2 IMEI (IMEI 1 & 2)? Masukkan tiap 15 digit IMEI di baris terpisah. Min. 2 IMEI = otomatis dapat harga reseller per IMEI.
               </Text>
             </View>
 
@@ -1059,7 +1059,7 @@ export default function AddRoamerScreen() {
           </View>
           {isWholesaleActive && (
             <View style={styles.summaryRow}>
-              <Text style={{ color: '#10b981', fontSize: 13 }}>Harga Grosir Multi-IMEI Diterapkan</Text>
+              <Text style={{ color: '#10b981', fontSize: 13 }}>Harga Reseller Multi-IMEI Diterapkan</Text>
               <Text style={{ color: '#10b981', fontWeight: '700', fontSize: 13 }}>
                 Hemat Rp {wholesaleSavings.toLocaleString('id-ID')}
               </Text>
