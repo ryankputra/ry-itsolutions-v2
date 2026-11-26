@@ -1035,8 +1035,11 @@ function UnblockImeiContent() {
                             {/* Footer card info */}
                             <div className="mt-3 pt-2 border-t border-hairline/70 flex items-center justify-between text-[10px]">
                               {optSp.wholesale_enabled ? (
-                                <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                  Grosir &ge;{optSp.wholesale_min_qty || 2} IMEI
+                                <span className="flex items-center gap-1 font-bold text-emerald-600 dark:text-emerald-400 cursor-help relative group" title="Harga reseller otomatis untuk ≥2 IMEI">
+                                  <span>Harga Reseller ≥{optSp.wholesale_min_qty || 2} IMEI</span>
+                                  <svg className="w-3 h-3 opacity-70" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                  </svg>
                                 </span>
                               ) : (
                                 <span className="text-ink-muted">Garansi Resmi</span>
@@ -1256,7 +1259,7 @@ function UnblockImeiContent() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
                     </svg>
                     <p className="text-[11px] leading-relaxed">
-                      <span className="font-bold text-ink">Punya HP Dual SIM (IMEI 1 &amp; 2)?</span> Masukkan tiap 15 digit IMEI di baris baru. Pembelian minimal 2 IMEI otomatis mendapatkan harga diskon grosir!
+                      <span className="font-bold text-ink">HP Dual SIM (IMEI 1 &amp; 2)?</span> Masukkan tiap 15 digit IMEI di baris baru (pisah enter/koma). <strong className="text-emerald-700 dark:text-emerald-400">Min. 2 IMEI = otomatis dapat harga grosir per IMEI</strong>.
                     </p>
                   </div>
 
