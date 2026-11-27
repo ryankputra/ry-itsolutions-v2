@@ -57,9 +57,13 @@ jobs:
             .next public/version.json
           echo "Artifact size:"
           ls -lh "$GITHUB_WORKSPACE/frontend-next.tgz"
-          echo "Isi artifact:"
-          tar -tzf "$GITHUB_WORKSPACE/frontend-next.tgz" | head -20
-          echo "Total member: $(tar -tzf "$GITHUB_WORKSPACE/frontend-next.tgz" | wc -l)"
+          # Daftar isi ditulis ke file dulu: `tar -tzf | head` membuat tar
+          # kena SIGPIPE ("write error", exit 2) dan set -o pipefail
+          # menggagalkan step padahal artifact-nya sudah benar.
+          tar -tzf "$GITHUB_WORKSPACE/frontend-next.tgz" > "$GITHUB_WORKSPACE/artifact-contents.txt"
+          echo "Isi artifact (20 pertama):"
+          head -20 "$GITHUB_WORKSPACE/artifact-contents.txt"
+          echo "Total member: $(wc -l < "$GITHUB_WORKSPACE/artifact-contents.txt")"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
