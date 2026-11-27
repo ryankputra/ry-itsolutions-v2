@@ -1989,6 +1989,19 @@ async function processAdminImageBatch(remoteJid) {
                     ""
                 ).trim();
 
+                // Admin shortcut buttons (Baileys buttonsMessage -> buttonsResponseMessage)
+                try {
+                    const btnResp = msg?.message?.buttonsResponseMessage;
+                    const selectedButtonId = btnResp?.selectedButtonId;
+                    const selectedDisplayText = btnResp?.selectedDisplayText;
+                    if (selectedButtonId) {
+                        await handleAdminShortcutButton(remoteJid, selectedButtonId, selectedDisplayText);
+                        continue;
+                    }
+                } catch (btnErr) {
+                    console.warn('[WABot] Error handling admin button response:', btnErr.message);
+                }
+
                 if (!messageText) continue;
 
                 // Check if message is a command or quick shortcut (e.g. .proses, 1, 2, 3, p, s, g, proses, igsession, setopen, jadwalopen)
@@ -2256,8 +2269,117 @@ async function notifyCustomerOnStatusChange(trxOrId, newStatus, customNote = '')
 /**
  * Handle Admin WhatsApp Commands
  */
+// --- ADMIN SHORTCUT BUTTONS (WhatsApp: Baileys buttonsMessage -> buttonsResponseMessage) ---
+const WA_ADMIN_SHORTCUT_BUTTONS = [
+    { buttonId: "wabot_admin_status", text: "📊 Status" },
+    { buttonId: "wabot_admin_ready", text: "✅ Ready" },
+    { buttonId: "wabot_admin_close_list", text: "🔒 Close List" },
+    { buttonId: "wabot_admin_close_toko", text: "🛑 Close Toko" },
+    { buttonId: "wabot_admin_saldo", text: "💰 Saldo" },
+    { buttonId: "wabot_admin_help", text: "📖 Bantuan" }
+];
+
+async function sendAdminShortcutButtons(jid, bodyText, buttons) {
+    if (!sock || connectionState !== "open") return false;
+    try {
+        const btns = (Array.isArray(buttons) ? buttons : WA_ADMIN_SHORTCUT_BUTTONS).map(b => ({
+            buttonId: b.buttonId,
+            buttonText: { text: b.text },
+            type: 1
+        }));
+        const content = btns.length > 0 ? { buttonsMessage: { buttons: btns } } : { text: bodyText };
+        await sendAndStoreMessage(jid, content);
+        return true;
+    } catch (e) {
+        console.warn(`[WABot] Gagal kirim tombol admin ke ${jid}:`, e.message);
+        return false;
+    }
+}
+
+async function handleAdminShortcutButton(jid, selectedButtonId, selectedDisplayText) {
+    const btn = (Array.isArray(WA_ADMIN_SHORTCUT_BUTTONS) ? WA_ADMIN_SHORTCUT_BUTTONS : []).find(b => b.buttonId === selectedButtonId);
+    const label = selectedDisplayText || (btn ? btn.text : selectedButtonId);
+    if (!btn) {
+        await replyWhatsApp(jid, `*Tombol admin tidak dikenali: ${selectedButtonId}*`);
+        return;
+    }
+
+    if (btn.buttonId === "wabot_admin_status") {
+        try {
+            const pendingTrx = await dbGet("SELECT COUNT(*) as total FROM transactions WHERE status IN ('pending', 'processing', 'in_queue', 'menunggu_saldo_provider')");
+            const successTrx = await dbGet("SELECT COUNT(*) as total FROM transactions WHERE status IN ('success', 'completed')");
+            const totalUsers = await dbGet("SELECT COUNT(*) as total FROM users");
+            const statusText = `*STATUS ADMIN RY-ITSOLUTIONS*\n\n` +
+                `⏳ Antrean: ${pendingTrx?.total || 0}\n` +
+                `✅ Sukses: ${successTrx?.total || 0}\n` +
+                `👥 User: ${totalUsers?.total || 0}` + BOT_FOOTER;
+            await replyWhatsApp(jid, statusText);
+        } catch (e) {
+            await replyWhatsApp(jid, `*Gagal ambil status: ${e.message}*`);
+        }
+        return;
+    }
+
+    if (btn.buttonId === "wabot_admin_saldo") {
+        try {
+            const userTotalBalance = await dbGet("SELECT SUM(balance) as total FROM users");
+            const balanceText = `*SALDO ADMIN RY-ITSOLUTIONS*\n\n` +
+                `💰 Total Saldo Pengguna: Rp ${Number(userTotalBalance?.total || 0).toLocaleString("id-ID")}` + BOT_FOOTER;
+            await replyWhatsApp(jid, balanceText);
+        } catch (e) {
+            await replyWhatsApp(jid, `*Gagal ambil saldo: ${e.message}*`);
+        }
+        return;
+    }
+
+    if (btn.buttonId === "wabot_admin_help") {
+        const helpMsg = `*PANDUAN PERINTAH BOT ADMIN Ry-ITSolutions*\n\n` +
+            `• *.proses <ID_ORDER>* - Proses pesanan\n` +
+            `• *.sukses <ID_ORDER> <CATATAN>* - Selesaikan pesanan\n` +
+            `• *.gagal <ID_ORDER> <ALASAN>* - Batalkan & refund\n` +
+            `• *.status <ID_ORDER>* - Cek status pesanan\n` +
+            `• *.igsession <sessionid>* - Bind sesi Instagram\n` +
+            `• *#open*, #setopen, #jadwalopen, #stopopen, #startopen - Story Open\n\n` +
+            `_Gunakan tombol teks atau perintah admin lainnya._` + BOT_FOOTER;
+        await replyWhatsApp(jid, helpMsg);
+        return;
+    }
+
+    if (btn.buttonId === "wabot_admin_close_toko") {
+        try {
+            await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_fast_realtime_status', 'closed')");
+            await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_1b_realtime_status', 'closed')");
+            await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_exe_realtime_status', 'closed')");
+            await dbRun("INSERT OR REPLACE INTO settings (key, value) VALUES ('rivera_auto_sync_status', 'false')");
+            await replyWhatsApp(jid, `*CLOSE TOKO DIKONFIRMASI*\n\nSemua layanan ditandai CLOSED. Kontrol manual via web admin & command bot tetap aktif.` + BOT_FOOTER);
+        } catch (e) {
+            await replyWhatsApp(jid, `*Gagal close toko: ${e.message}*`);
+        }
+        return;
+    }
+
+    if (btn.buttonId === "wabot_admin_ready") {
+        await replyWhatsApp(jid, `*READY*\n\nAksi ini memerlukan context pesanan. Gunakan notifikasi pesanan dengan reply/quote atau ketik *.proses <ID_ORDER>*.`);
+        return;
+    }
+
+    if (btn.buttonId === "wabot_admin_close_list") {
+        await replyWhatsApp(jid, `*CLOSE LIST*\n\nTidak ada antrean/pending list aktif yang perlu ditutup saat ini.`);
+        return;
+    }
+}
+
 async function handleAdminCommand(replyJid, text, rawMsg = null) {
     const rawCleanText = text.trim().toLowerCase();
+
+    // Admin shortcut buttons menu
+    if (rawCleanText === ".tombol" || rawCleanText === ".shortcut" || rawCleanText === ".btnadmin" || rawCleanText === ".btn") {
+        const sent = await sendAdminShortcutButtons(replyJid, `*PANEL TOMBOL ADMIN RY-ITSOLUTIONS*\n\nPilih aksi cepat dari daftar tombol di bawah:`, WA_ADMIN_SHORTCUT_BUTTONS);
+        if (!sent) {
+            await replyWhatsApp(replyJid, `*PANEL TOMBOL ADMIN RY-ITSOLUTIONS*\n\nGagal mengirim tombol admin. Pastikan bot WhatsApp terhubung.`);
+        }
+        return;
+    }
 
     // Command Khusus: Simpan / Bind Session ID Instagram (.setigsession <sessionid> / .igsession <sessionid>)
     if (
