@@ -2298,7 +2298,22 @@ async function sendAdminShortcutButtons(jid, bodyText, buttons) {
 
 async function handleAdminShortcutButton(jid, selectedButtonId, selectedDisplayText) {
     const btn = (Array.isArray(WA_ADMIN_SHORTCUT_BUTTONS) ? WA_ADMIN_SHORTCUT_BUTTONS : []).find(b => b.buttonId === selectedButtonId);
-    const label = selectedDisplayText || (btn ? btn.text : selectedButtonId);
+
+    if (selectedButtonId && String(selectedButtonId).startsWith("wabot_order_")) {
+        const rest = String(selectedButtonId).replace(/^wabot_order_/, "");
+        const parts = rest.split("_");
+        const action = parts[0];
+        const orderId = parts.slice(1).join("_");
+        const cmdMap = { proses: ".proses", sukses: ".sukses", gagal: ".gagal" };
+        const cmd = cmdMap[action];
+        if (cmd && orderId) {
+            await handleAdminCommand(jid, `${cmd} ${orderId}`, null);
+        } else {
+            await replyWhatsApp(jid, `*Tombol aksi pesanan tidak dikenali: ${selectedButtonId}*`);
+        }
+        return;
+    }
+
     if (!btn) {
         await replyWhatsApp(jid, `*Tombol admin tidak dikenali: ${selectedButtonId}*`);
         return;
@@ -3956,9 +3971,17 @@ async function notifyNewOrder(orderData) {
             const adminJid = `${cleanAdmin}@s.whatsapp.net`;
 
             try {
-                await sendAndStoreMessage(adminJid, { text: messageBody });
-                logWABot(`✅ Notifikasi pesanan ${id} berhasil dikirim ke admin (${cleanAdmin})`, "info");
-                console.log(`[WABot] Notifikasi pesanan ${id} berhasil dikirim ke admin (${cleanAdmin}).`);
+                await sendAndStoreMessage(adminJid, {
+                    buttonsMessage: {
+                        buttons: [
+                            { buttonId: `wabot_order_proses_${id}`, buttonText: { text: "✅ Proses" }, type: 1 },
+                            { buttonId: `wabot_order_selesai_${id}`, buttonText: { text: "✅ Selesai" }, type: 1 },
+                            { buttonId: `wabot_order_gagal_${id}`, buttonText: { text: "❌ Batal/Refund" }, type: 1 }
+                        ]
+                    }
+                });
+                logWABot(`✅ Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin})`, "info");
+                console.log(`[WABot] Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin}).`);
             } catch (adminErr) {
                 logWABot(`❌ Gagal mengirim notifikasi ke admin ${cleanAdmin}: ${adminErr.message}`, "warn");
                 console.warn(`[WABot] Gagal mengirim pesan ke admin ${cleanAdmin}:`, adminErr.message);
