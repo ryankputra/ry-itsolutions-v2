@@ -11,7 +11,7 @@ const multer = require('multer');
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
 const { dbGet, dbRun, dbAll } = require('../config/db');
-const { isAuthenticated } = require('../middleware/auth');
+const { isAuthenticated, requireVerifiedPhone } = require('../middleware/auth');
 const ceirgoClient = require('../ceirgoClient');
 const { sendTelegramNotification } = require('../telegramService');
 const { notifyNewOrder } = require('../services/waBot');
@@ -531,19 +531,19 @@ async function handleCeirgoOrderExecution(req, res, forcedType = null) {
 }
 
 // 1. Dedicated routes for Frontend menus
-router.post('/order/ceir', isAuthenticated, upload.none(), (req, res) => {
+router.post('/order/ceir', isAuthenticated, requireVerifiedPhone, upload.none(), (req, res) => {
     return handleCeirgoOrderExecution(req, res, 'ceir');
 });
 
-router.post('/order/barcode', isAuthenticated, upload.none(), (req, res) => {
+router.post('/order/barcode', isAuthenticated, requireVerifiedPhone, upload.none(), (req, res) => {
     return handleCeirgoOrderExecution(req, res, 'barcode');
 });
 
-router.post('/order', isAuthenticated, upload.none(), (req, res) => {
+router.post('/order', isAuthenticated, requireVerifiedPhone, upload.none(), (req, res) => {
     return handleCeirgoOrderExecution(req, res);
 });
 
-router.post('/orders/create', isAuthenticated, upload.none(), (req, res) => {
+router.post('/orders/create', isAuthenticated, requireVerifiedPhone, upload.none(), (req, res) => {
     return handleCeirgoOrderExecution(req, res);
 });
 

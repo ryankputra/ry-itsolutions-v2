@@ -158,6 +158,8 @@ app.use([
     '/api/user/verify-email-otp',
     '/api/phone/request-otp',
     '/api/phone/verify-otp',
+    '/api/user/bind-phone',
+    '/api/user/bind-phone/request-otp',
     '/api/coupons/claim',
     '/api/order/ceir',
     '/api/order/barcode',

@@ -14,7 +14,7 @@ const { OAuth2Client } = require('google-auth-library');
 const SibApiV3Sdk = require('sib-api-v3-sdk');
 
 const { dbGet, dbRun, dbAll } = require('../config/db');
-const { isAuthenticated } = require('../middleware/auth');
+const { isAuthenticated, requireVerifiedPhone } = require('../middleware/auth');
 const { sendTelegramNotification } = require('../telegramService');
 const { validateEmailActive, sendRegistrationOtpEmail, sendPasswordResetOtpEmail, sendEmailChangeOtpEmail } = require('../services/emailService');
 const { logUserActivity } = require('../utils/activityLogger');
@@ -60,6 +60,12 @@ const avatarUpload = multer({
 // Maximum OTP verification attempts before the OTP record is invalidated (VULN-09).
 const MAX_OTP_ATTEMPTS = 5;
 
+// OTP validity window & resend cooldown (Fitur Bind WhatsApp + OTP Verifikasi).
+// - OTP_TTL_MS        : jendela berlaku kode OTP (10 menit).
+// - OTP_RESEND_COOLDOWN_MS : cooldown antar permintaan resend OTP (60 detik).
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+
 /**
  * Increment the failed-attempt counter for an OTP record (VULN-09).
  * Returns the new attempt count. The counter lives in `email_verifications.attempts`
@@ -102,6 +108,35 @@ async function handleWrongOtp(req, res, email, type, message) {
         status: false,
         message: `${message} Sisa percobaan: ${MAX_OTP_ATTEMPTS - attempts}.`
     });
+}
+
+/**
+ * Fetch the current OTP record for (email, type).
+ */
+async function getOtpRecord(email, type) {
+    try {
+        return await dbGet('SELECT * FROM email_verifications WHERE email = ? AND type = ?', [email, type]);
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Set resend cooldown (default 60 detik) pada record OTP yang ada/baru.
+ * Dipakai untuk mencegah spam permintaan resend OTP (Fitur Bind WhatsApp + OTP).
+ */
+async function setResendCooldown(email, type, ms = OTP_RESEND_COOLDOWN_MS) {
+    const cooldownUntil = Date.now() + ms;
+    try {
+        await dbRun('UPDATE email_verifications SET resend_cooldown_until = ? WHERE email = ? AND type = ?', [cooldownUntil, email, type]);
+    } catch (e) {
+        // Tabel lama (belum migrasi) — abaikan, limiter tetap berlaku via attempts.
+    }
+    return cooldownUntil;
+}
+
+function isCooldownActive(record, now = Date.now()) {
+    return !!(record && Number(record.resend_cooldown_until || 0) > now);
 }
 
 // Helper for effective maintenance
@@ -311,7 +346,7 @@ router.post('/auth/register-request-otp', async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const otp = crypto.randomInt(100000, 1000000).toString();
-        const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
+        const expiresAt = Date.now() + OTP_TTL_MS; // 10 menit
         const payload = JSON.stringify({
             name,
             email: validEmail,
@@ -321,9 +356,24 @@ router.post('/auth/register-request-otp', async (req, res) => {
             referrerName
         });
 
+        const existingOtp = await getOtpRecord(validEmail, 'register');
+        if (isCooldownActive(existingOtp)) {
+            const retryAfterSec = Math.max(1, Math.ceil((Number(existingOtp.resend_cooldown_until) - Date.now()) / 1000));
+            return res.status(429).json({ status: false, message: `Permintaan kode verifikasi masih dalam cooldown. Silakan tunggu ${retryAfterSec} detik sebelum meminta kode baru.`, retryAfterSeconds: retryAfterSec });
+        }
+
+        let registerIdemKey = req.body.idempotency_key;
+        if (registerIdemKey && typeof registerIdemKey === 'string') {
+            const idemRecord = await dbGet('SELECT * FROM email_verifications WHERE email = ? AND type = ? AND idempotency_key = ?', [validEmail, 'register', registerIdemKey]);
+            if (idemRecord && Number(idemRecord.expires_at) > Date.now()) {
+                // Idempotent replay: kembalikan status proses sebelumnya tanpa kirim ulang OTP.
+                return res.status(200).json({ status: true, message: "Idempotent request: kode verifikasi Anda sudah diproses.", email: validEmail, idempotentReplay: true });
+            }
+        }
+
         await dbRun(
-            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts) VALUES (?, ?, ?, ?, ?, ?, 0)',
-            [validEmail, otp, 'register', payload, expiresAt, new Date().toISOString()]
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts, phone, idempotency_key, resend_cooldown_until) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
+            [validEmail, otp, 'register', payload, expiresAt, new Date().toISOString(), null, registerIdemKey || null, Date.now() + OTP_RESEND_COOLDOWN_MS]
         );
 
         const emailSent = await sendRegistrationOtpEmail(validEmail, otp, name);
@@ -601,11 +651,26 @@ router.post('/auth/forgot-password-request', async (req, res) => {
         }
 
         const otp = crypto.randomInt(100000, 1000000).toString();
-        const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
+        const expiresAt = Date.now() + OTP_TTL_MS; // 10 menit
+
+        const existingOtpFp = await getOtpRecord(validEmail, 'forgot_password');
+        if (isCooldownActive(existingOtpFp)) {
+            const retryAfterSec = Math.max(1, Math.ceil((Number(existingOtpFp.resend_cooldown_until) - Date.now()) / 1000));
+            return res.status(429).json({ status: false, message: `Permintaan kode reset password masih dalam cooldown. Silakan tunggu ${retryAfterSec} detik sebelum meminta kode baru.`, retryAfterSeconds: retryAfterSec });
+        }
+
+        let forgotIdemKey = req.body.idempotency_key;
+        if (forgotIdemKey && typeof forgotIdemKey === 'string') {
+            const idemRecord = await dbGet('SELECT * FROM email_verifications WHERE email = ? AND type = ? AND idempotency_key = ?', [validEmail, 'forgot_password', forgotIdemKey]);
+            if (idemRecord && Number(idemRecord.expires_at) > Date.now()) {
+                // Idempotent replay: kembalikan status proses sebelumnya tanpa kirim ulang OTP.
+                return res.status(200).json({ status: true, message: "Idempotent request: permintaan reset Anda sudah diproses.", email: validEmail, idempotentReplay: true });
+            }
+        }
 
         await dbRun(
-            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts) VALUES (?, ?, ?, ?, ?, ?, 0)',
-            [validEmail, otp, 'forgot_password', JSON.stringify({ userId: user.id }), expiresAt, new Date().toISOString()]
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts, phone, idempotency_key, resend_cooldown_until) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
+            [validEmail, otp, 'forgot_password', JSON.stringify({ userId: user.id }), expiresAt, new Date().toISOString(), null, forgotIdemKey || null, Date.now() + OTP_RESEND_COOLDOWN_MS]
         );
 
         const emailSent = await sendPasswordResetOtpEmail(validEmail, otp, user.name);
@@ -832,12 +897,12 @@ router.put("/user/profile", isAuthenticated, async (req, res) => {
     }
 });
 
-// 8.5b. Wajib Bind Nomor WhatsApp untuk User (Termasuk Login Google)
+// 8.5b. Verify WhatsApp Bind OTP & Link Phone (Fitur Bind WhatsApp + OTP Verifikasi)
 router.post('/user/bind-phone', isAuthenticated, async (req, res) => {
     try {
-        const { phone } = req.body;
-        if (!phone || String(phone).trim().length < 8) {
-            return res.status(400).json({ status: false, message: "Nomor WhatsApp wajib diisi." });
+        const { phone, auth_id, otp } = req.body;
+        if (!phone || !auth_id || !otp) {
+            return res.status(400).json({ status: false, message: "Nomor WhatsApp, auth_id, dan OTP verifikasi wajib diisi. Minta kode OTP terlebih dahulu via /api/user/bind-phone/request-otp." });
         }
         let cleanP = String(phone).replace(/\D/g, "");
         if (cleanP.startsWith("0")) cleanP = "62" + cleanP.substring(1);
@@ -846,7 +911,34 @@ router.post('/user/bind-phone', isAuthenticated, async (req, res) => {
             return res.status(400).json({ status: false, message: "Nomor WhatsApp tidak valid. Format: 08xxxxxxxxxx" });
         }
 
-        await dbRun("UPDATE users SET verifiedPhone = ? WHERE id = ?", [cleanP, req.session.userId]);
+        const user = await dbGet('SELECT id, name, email, verifiedPhone, savedPhones FROM users WHERE id = ?', [req.session.userId]);
+        if (!user) {
+            return res.status(404).json({ status: false, message: "Pengguna tidak ditemukan." });
+        }
+
+        const record = await getOtpRecord(user.email, 'bind_whatsapp');
+        if (!record || record.phone !== cleanP) {
+            return res.status(400).json({ status: false, message: "Permintaan verifikasi bind WhatsApp tidak ditemukan atau nomor tidak cocok. Silakan minta kode OTP baru." });
+        }
+        if (Number(record.expires_at) < Date.now()) {
+            await dbRun('DELETE FROM email_verifications WHERE email = ? AND type = ?', [user.email, 'bind_whatsapp']);
+            return res.status(400).json({ status: false, message: "Kode OTP WhatsApp telah kedaluwarsa. Silakan minta kode baru." });
+        }
+        if (record.otp !== String(otp).trim()) {
+            return await handleWrongOtp(req, res, user.email, 'bind_whatsapp', "Kode verifikasi OTP WhatsApp salah.");
+        }
+
+        const loginResponse = await fetch(`https://golang-openapi-login-xltembakservice.kmsp-store.com/v1?api_key=${KMSP_API_KEY}&phone=${cleanP}&method=OTP&auth_id=${auth_id}&otp=${otp}`);
+        const loginData = await loginResponse.json();
+        if (!loginResponse.ok || !loginData.status) throw new Error(loginData.message || 'Verifikasi OTP Gagal.');
+        if (!loginData.data?.access_token) throw new Error('Gagal mendapatkan access token dari provider.');
+
+        const savedPhones = user.savedPhones ? JSON.parse(user.savedPhones) : [];
+        let updatedPhones = savedPhones.filter(p => p !== cleanP);
+        updatedPhones.unshift(cleanP);
+        updatedPhones = updatedPhones.slice(0, 5);
+
+        await dbRun('UPDATE users SET verifiedPhone = ?, savedPhones = ? WHERE id = ?', [cleanP, JSON.stringify(updatedPhones), req.session.userId]);
         const updatedUser = await dbGet("SELECT id, name, email, role, balance, coins, avatar, verifiedPhone FROM users WHERE id = ?", [req.session.userId]);
 
         // Kirim pesan sambutan ke nomor WhatsApp pengguna jika bot aktif
@@ -875,6 +967,59 @@ router.post('/user/bind-phone', isAuthenticated, async (req, res) => {
     }
 });
 
+// 8.5c. Request WhatsApp Bind OTP (Kirim OTP verifikasi ke nomor WhatsApp via KMSP)
+router.post('/user/bind-phone/request-otp', isAuthenticated, async (req, res) => {
+    try {
+        const { phone, idempotency_key } = req.body;
+        if (!phone) return res.status(400).json({ status: false, message: "Parameter 'phone' diperlukan." });
+        let cleanP = String(phone).replace(/\D/g, "");
+        if (cleanP.startsWith("0")) cleanP = "62" + cleanP.substring(1);
+        else if (!cleanP.startsWith("62")) cleanP = "62" + cleanP;
+        if (!/^628\d{7,12}$/.test(cleanP)) {
+            return res.status(400).json({ status: false, message: "Nomor WhatsApp tidak valid. Format: 08xxxxxxxxxx" });
+        }
+
+        const user = await dbGet('SELECT id, name, email FROM users WHERE id = ?', [req.session.userId]);
+        if (!user) return res.status(404).json({ status: false, message: "Pengguna tidak ditemukan." });
+
+        const type = 'bind_whatsapp';
+        const existingOtp = await getOtpRecord(user.email, type);
+        if (isCooldownActive(existingOtp)) {
+            const retryAfterSec = Math.max(1, Math.ceil((Number(existingOtp.resend_cooldown_until) - Date.now()) / 1000));
+            return res.status(429).json({ status: false, message: `Permintaan kode verifikasi WhatsApp masih dalam cooldown. Silakan tunggu ${retryAfterSec} detik sebelum meminta kode baru.`, retryAfterSeconds: retryAfterSec });
+        }
+
+        let bindIdemKey = idempotency_key;
+        if (bindIdemKey && typeof bindIdemKey === 'string') {
+            const idemRecord = await dbGet('SELECT * FROM email_verifications WHERE email = ? AND type = ? AND idempotency_key = ?', [user.email, type, bindIdemKey]);
+            if (idemRecord && Number(idemRecord.expires_at) > Date.now()) {
+                // Idempotent replay: kembalikan status proses sebelumnya tanpa kirim ulang OTP.
+                return res.status(200).json({ status: true, message: "Idempotent request: verifikasi bind WhatsApp Anda sudah diproses.", data: { auth_id: idemRecord.otp } });
+            }
+        }
+
+        const otp = crypto.randomInt(100000, 1000000).toString();
+        const expiresAt = Date.now() + OTP_TTL_MS; // 10 menit
+        const payload = JSON.stringify({ userId: user.id, phone: cleanP, idempotency_key: bindIdemKey || null });
+        await dbRun(
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts, phone, idempotency_key, resend_cooldown_until) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
+            [user.email, otp, type, payload, expiresAt, new Date().toISOString(), cleanP, bindIdemKey || null, Date.now() + OTP_RESEND_COOLDOWN_MS]
+        );
+
+        const response = await fetch(`https://golang-openapi-reqotp-xltembakservice.kmsp-store.com/v1?api_key=${KMSP_API_KEY}&phone=${cleanP}&method=OTP`);
+        const data = await response.json();
+        if (!response.ok || !data.status) throw new Error(data.message || 'Gagal meminta OTP dari provider.');
+        const authId = data?.data?.auth_id || data?.auth_id || null;
+
+        sendTelegramNotification(`🔐 Permintaan verifikasi OTP bind WhatsApp: user <b>${user.email}</b> nomor <b>${cleanP}</b>`, 'admin');
+
+        return res.status(200).json({ status: true, message: "Kode verifikasi WhatsApp berhasil dikirim.", data: { auth_id: authId } });
+    } catch (e) {
+        console.error("Error bind-phone request-otp:", e);
+        return res.status(500).json({ status: false, message: e.message || "Gagal mengirim kode verifikasi WhatsApp." });
+    }
+});
+
 // 8.6. Request Change Email OTP
 router.post('/user/request-email-otp', isAuthenticated, async (req, res) => {
     try {
@@ -897,11 +1042,26 @@ router.post('/user/request-email-otp', isAuthenticated, async (req, res) => {
         }
 
         const otp = crypto.randomInt(100000, 1000000).toString();
-        const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
+        const expiresAt = Date.now() + OTP_TTL_MS; // 10 menit
+
+        const existingOtpCe = await getOtpRecord(validEmail, 'change_email');
+        if (isCooldownActive(existingOtpCe)) {
+            const retryAfterSec = Math.max(1, Math.ceil((Number(existingOtpCe.resend_cooldown_until) - Date.now()) / 1000));
+            return res.status(429).json({ status: false, message: `Permintaan kode verifikasi email masih dalam cooldown. Silakan tunggu ${retryAfterSec} detik sebelum meminta kode baru.`, retryAfterSeconds: retryAfterSec });
+        }
+
+        let changeIdemKey = req.body.idempotency_key;
+        if (changeIdemKey && typeof changeIdemKey === 'string') {
+            const idemRecord = await dbGet('SELECT * FROM email_verifications WHERE email = ? AND type = ? AND idempotency_key = ?', [validEmail, 'change_email', changeIdemKey]);
+            if (idemRecord && Number(idemRecord.expires_at) > Date.now()) {
+                // Idempotent replay: kembalikan status proses sebelumnya tanpa kirim ulang OTP.
+                return res.status(200).json({ status: true, message: "Idempotent request: permintaan verifikasi email sudah diproses.", email: validEmail, idempotentReplay: true });
+            }
+        }
 
         await dbRun(
-            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts) VALUES (?, ?, ?, ?, ?, ?, 0)',
-            [validEmail, otp, 'change_email', JSON.stringify({ userId: req.session.userId, newEmail: validEmail }), expiresAt, new Date().toISOString()]
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts, phone, idempotency_key, resend_cooldown_until) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)',
+            [validEmail, otp, 'change_email', JSON.stringify({ userId: req.session.userId, newEmail: validEmail }), expiresAt, new Date().toISOString(), null, changeIdemKey || null, Date.now() + OTP_RESEND_COOLDOWN_MS]
         );
 
         const emailSent = await sendEmailChangeOtpEmail(validEmail, otp, currentUser?.name || 'Pengguna');

@@ -52,6 +52,30 @@ const isAuthenticated = (req, res, next) => {
     res.status(401).json({ status: false, message: 'Unauthorized: Anda harus login.' });
 };
 
+// WhatsApp Verification Check Middleware (Fitur Bind WhatsApp + OTP Verifikasi)
+// User wajib memiliki verifiedPhone (WA) aktif sebelum aksi sensitif (transaksi,
+// order, coupon claim, CEIR/manual order) diizinkan. Admin tetap lolos bila role-nya admin.
+const requireVerifiedPhone = async (req, res, next) => {
+    const uid = req.session?.userId;
+    if (!uid) {
+        return res.status(401).json({ status: false, message: 'Unauthorized: Anda harus login.' });
+    }
+    try {
+        const user = await dbGet('SELECT id, email, verifiedPhone, role FROM users WHERE id = ?', [uid]);
+        if (!user) {
+            return res.status(401).json({ status: false, message: 'Unauthorized: Sesi tidak ditemukan.' });
+        }
+        if (user.role !== 'admin' && !user.verifiedPhone) {
+            return res.status(403).json({ status: false, message: 'Nomor WhatsApp belum terverifikasi. Silakan kaitkan WhatsApp Anda terlebih dahulu sebelum melakukan aksi ini.' });
+        }
+        req.verifiedPhone = user.verifiedPhone || null;
+        return next();
+    } catch (error) {
+        console.error("requireVerifiedPhone middleware error:", error);
+        return res.status(500).json({ status: false, message: 'Server error saat memeriksa verifikasi WhatsApp.' });
+    }
+};
+
 // Admin Authorization Check Middleware
 const isAdmin = async (req, res, next) => {
     const uid = req.session?.userId;
@@ -114,6 +138,7 @@ module.exports = {
     isAuthenticated,
     isAdmin,
     isReseller,
+    requireVerifiedPhone,
     sseAddClient,
     sseRemoveClient,
     sseSend,

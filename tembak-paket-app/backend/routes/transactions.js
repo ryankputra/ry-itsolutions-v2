@@ -13,7 +13,7 @@ const fetch = require('node-fetch');
 const qrcode = require('qrcode');
 
 const { dbGet, dbAll, dbRun } = require('../config/db');
-const { isAuthenticated, sseSend } = require('../middleware/auth');
+const { isAuthenticated, sseSend, requireVerifiedPhone } = require('../middleware/auth');
 const { escapeHtml, sendTelegramNotification } = require('../telegramService');
 const { requiredSecret } = require('../utils/secrets');
 const GOPAY_GATEWAY_API_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
@@ -788,7 +788,7 @@ router.post(['/gopay/webhook', '/payment/callback', '/callback/gopay', '/callbac
 });
 
 // 1. POST /api/purchase & /api/purchase/non-otp
-router.post(['/purchase', '/purchase/non-otp'], isAuthenticated, async (req, res) => {
+router.post(['/purchase', '/purchase/non-otp'], isAuthenticated, requireVerifiedPhone, async (req, res) => {
     const { packageId, phone, paymentMethod, ewallet_number, purchaseContext = 'paket-satuan' } = req.body;
     let access_token = req.body.access_token || 'non_otp';
     if (!packageId || !phone || !paymentMethod) {
@@ -906,7 +906,7 @@ router.post(['/purchase', '/purchase/non-otp'], isAuthenticated, async (req, res
 });
 
 // 2. POST /api/order/manual & /api/order/ceir
-router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenticated, (req, res) => {
+router.post(['/transactions/manual', '/order/ceir', '/order/manual'], isAuthenticated, requireVerifiedPhone, (req, res) => {
     manualOrderUpload(req, res, async (err) => {
         if (err) return res.status(400).json({ status: false, message: err.message });
         try {

@@ -8,7 +8,7 @@ const express = require('express');
 const router = express.Router();
 const { dbGet, dbAll, dbRun } = require('../config/db');
 const { logUserActivity } = require('../utils/activityLogger');
-const { isAuthenticated, isAdmin } = require('../middleware/auth');
+const { isAuthenticated, isAdmin, requireVerifiedPhone } = require('../middleware/auth');
 const { getEffectiveMaintenanceStatus } = require('./auth');
 
 const APP_START_TIME = Date.now();
@@ -816,7 +816,7 @@ router.get('/coupons/public', async (req, res) => {
 });
 
 // 11. POST /api/coupons/claim & /api/coupon/claim
-router.post(['/coupons/claim', '/coupon/claim'], isAuthenticated, async (req, res) => {
+router.post(['/coupons/claim', '/coupon/claim'], isAuthenticated, requireVerifiedPhone, async (req, res) => {
     try {
         const { coupon_id, couponId, code } = req.body;
         const identifier = coupon_id || couponId || code;
