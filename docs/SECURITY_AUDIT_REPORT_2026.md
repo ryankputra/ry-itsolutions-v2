@@ -71,12 +71,12 @@ Berikut adalah matriks temuan kerentanan berdasarkan keparahan (CVSS v3.1):
   Di baris 58, server mengaktifkan `app.set('trust proxy', 1);`. Selanjutnya, beberapa rute administrasi dan kontrol internal (seperti pairing bot WhatsApp, trigger story Instagram, hapus story, notifikasi tes) memvalidasi hak akses hanya dengan mengecek:
   ```javascript
   const ip = req.ip || req.socket?.remoteAddress || "";
-  if (req.headers["x-internal-key"] === "tembak_internal_wa_2026" || ip.includes("127.0.0.1") || ip.includes("::1") || ip.includes("localhost")) {
+  if (req.headers["x-internal-key"] === "<REDACTED>" || ip.includes("127.0.0.1") || ip.includes("::1") || ip.includes("localhost")) {
       return next();
   }
   ```
 - **Dampak Keamanan:**
-  Dengan `trust proxy: 1`, nilai `req.ip` dapat dimanipulasi dengan menyertakan header `X-Forwarded-For: 127.0.0.1` dari luar jika reverse proxy (Nginx/Cloudflare) tidak membersihkan header tersebut secara ketat. Selain itu, secret header `tembak_internal_wa_2026` tertulis jelas (*hardcoded*) di dalam kode.
+  Dengan `trust proxy: 1`, nilai `req.ip` dapat dimanipulasi dengan menyertakan header `X-Forwarded-For: 127.0.0.1` dari luar jika reverse proxy (Nginx/Cloudflare) tidak membersihkan header tersebut secara ketat. Selain itu, secret header internal ditulis jelas (*hardcoded*) di dalam kode.
 - **Rekomendasi Perbaikan Defensif:**
   1. Hapus pengujian otorisasi berbasis `req.ip` untuk aksi administratif berisiko tinggi.
   2. Proteksi seluruh rute manajemen internal dan admin menggunakan middleware `isAuthenticated` dan `isAdmin` secara wajib.
@@ -87,10 +87,10 @@ Berikut adalah matriks temuan kerentanan berdasarkan keparahan (CVSS v3.1):
 ### 🚨 VULN-03: Hardcoded Secrets & Kunci Rahasia Default di Kode Sumber
 - **Tingkat Keparahan:** **HIGH (CVSS 8.1)**
 - **Lokasi Kode:**
-  - `backend/server.js`: `SESSION_SECRET = 'ry-itsolutions-secret-key-2026'` / `'ryystore_secure_session_secret_2026'`
-  - `backend/middleware/security.js`: `x-internal-test-key = 'ry-internal-test-pass'`
-  - `backend/routes/webhook.js`: `AUTO_DEPLOY_SECRET = 'RyITSolutionsAutoDeploy2026'`
-  - `backend/routes/gateway.js`: `GOPAY_GATEWAY_API_KEY = 'ryy-gopay-secret-key-2026'`, `SHOPPEPAY_GATEWAY_API_KEY = 'shopee-secret-key-2026'`
+  - `backend/server.js`: `SESSION_SECRET = '<REDACTED>'`
+  - `backend/middleware/security.js`: `x-internal-test-key = '<REDACTED>'`
+  - `backend/routes/webhook.js`: `AUTO_DEPLOY_SECRET = '<REDACTED>'`
+  - `backend/routes/gateway.js`: `GOPAY_GATEWAY_API_KEY = '<REDACTED>'`, `SHOPPEPAY_GATEWAY_API_KEY = '<REDACTED>'`
 - **Deskripsi Masalah:**
   Nilai fallback secret digunakan jika variabel lingkungan (*environment variables*) tidak ditemukan.
 - **Dampak Keamanan:**
@@ -128,14 +128,14 @@ Berikut adalah matriks temuan kerentanan berdasarkan keparahan (CVSS v3.1):
   Middleware `globalRateLimiter` dan `sensitiveRateLimiter` memiliki aturan `skip`:
   ```javascript
   skip: (req) => {
-      if (req.headers['x-internal-test-key'] === 'ry-internal-test-pass') return true;
+      if (req.headers['x-internal-test-key'] === '<REDACTED>') return true;
       if (req.ip === '127.0.0.1' && req.headers['x-skip-rate-limit'] === 'true') return true;
       return false;
   }
   ```
   Header `x-internal-test-key` juga secara eksplisit dimasukkan ke dalam `allowedHeaders` pada konfigurasi CORS di `server.js`.
 - **Dampak Keamanan:**
-  Penyerang dari luar dapat menyertakan header `x-internal-test-key: ry-internal-test-pass` untuk mematikan fungsi rate limiting pada endpoint autentikasi (`/api/auth/login`, `/api/auth/register`, `/api/auth/verify-otp`), sehingga dapat melakukan serangan *credential stuffing* dan *brute-force* OTP tanpa batasan.
+  Penyerang dari luar dapat menyertakan header `x-internal-test-key: <REDACTED>` untuk mematikan fungsi rate limiting pada endpoint autentikasi (`/api/auth/login`, `/api/auth/register`, `/api/auth/verify-otp`), sehingga dapat melakukan serangan *credential stuffing* dan *brute-force* OTP tanpa batasan.
 - **Rekomendasi Perbaikan Defensif:**
   Hapus pengecekan bypass `x-internal-test-key` dari kode produksi. Pengecualian rate limit hanya boleh aktif jika `process.env.NODE_ENV === 'test'`.
 

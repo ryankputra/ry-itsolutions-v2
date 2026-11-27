@@ -7,6 +7,14 @@ const crypto = require('crypto');
 const { exec } = require('child_process');
 require('dotenv').config();
 const sessionManager = require('./sessionManager');
+const { requiredSecret } = require('../backend/utils/secrets');
+
+// Master key milik gopay-gateway (layanan TERPISAH dari backend).
+// Dibaca SATU KALI di sini supaya inbound auth dan callback notify-expired
+// dijamin memakai nilai yang sama.
+// Di STB nilainya HARUS sama dengan backend's GOPAY_GATEWAY_API_KEY,
+// karena backend/routes/gateway.js memverifikasi callback dengan env var itu.
+const MASTER_API_KEY = requiredSecret('API_KEY');
 
 let sqlite3Module;
 try {
@@ -200,7 +208,8 @@ const apiKeyAuth = async (req, res, next) => {
     }
 
     // Master key used by Ry-ITSolutions internal server
-    if (apiKey === process.env.API_KEY) {
+    // Perbandingan timing-safe supaya key tidak bisa ditebak lewat timing attack
+    if (safeSecretMatch(apiKey, MASTER_API_KEY)) {
         req.isMasterKey = true;
         req.gatewayKey = null;
         return next();
@@ -947,7 +956,11 @@ async function verifyPayment(amount, startTime, merchantIdOverride = null, userA
                     const mainBackendUrl = process.env.MAIN_BACKEND_URL || 'http://127.0.0.1:3001';
                     axios.post(`${mainBackendUrl}/api/gateway/internal/notify-expired`, {
                         keyId: gatewayKey.id,
-                        secret: process.env.API_KEY || 'ryy-gopay-secret-key-2026'
+                        // Pakai master key yang SAMA dengan yang dipakai inbound auth
+                        // (MASTER_API_KEY / env API_KEY).
+                        // backend/routes/gateway.js memverifikasi nilai ini memakai
+                        // GOPAY_GATEWAY_API_KEY, jadi KEDUA env var harus berisi NILAI YANG SAMA di STB.
+                        secret: MASTER_API_KEY
                     }, { timeout: 4000 }).catch(() => {});
                 } catch (e) {}
 

@@ -12,13 +12,14 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { requiredSecret } = require('./utils/secrets');
 const fetch = require('node-fetch');
 
 const TELEGRAM_BOT_TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
 const TELEGRAM_ADMIN_CHAT_ID = String(process.env.TELEGRAM_ADMIN_CHAT_ID || '').trim();
 const TELEGRAM_GROUP_CHAT_ID = String(process.env.TELEGRAM_GROUP_CHAT_ID || '').trim();
 const TELEGRAM_CHAT_ID = String(process.env.TELEGRAM_CHAT_ID || '').trim();
-const TELEGRAM_WEBHOOK_SECRET = (process.env.TELEGRAM_WEBHOOK_SECRET || 'ry-secret-tg-token-2026').trim();
+const TELEGRAM_WEBHOOK_SECRET = requiredSecret('TELEGRAM_WEBHOOK_SECRET').trim();
 
 // --- 1. HTML SANITIZATION ---
 function escapeHtml(text) {

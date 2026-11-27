@@ -1,5 +1,6 @@
 // Dual Payment Gateway Router (GoPay & ShopeePay) with Auto-Rotation & Fallback
 const axios = require('axios');
+const { requiredSecret } = require('../utils/secrets');
 
 /**
  * Mendapatkan gateway aktif saat ini berdasarkan mode & counter (Read-Only)
@@ -58,8 +59,8 @@ async function proxyCreateQris(req, res, dbGet, dbRun) {
 
     const chosenGateway = await getPaymentGatewaySelection(dbGet);
     const targetUrl = chosenGateway === 'shoppepay' ? shoppepayUrl : gopayUrl;
-    const gopayKey = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
-    const shoppepayKey = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+    const gopayKey = requiredSecret('GOPAY_GATEWAY_API_KEY');
+    const shoppepayKey = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
     const chosenApiKey = chosenGateway === 'shoppepay' ? shoppepayKey : gopayKey;
 
     try {
@@ -113,8 +114,8 @@ async function proxyCreateQris(req, res, dbGet, dbRun) {
 async function proxyCheckPayment(req, res, dbGet) {
     const gopayUrl = process.env.GOPAY_GATEWAY_URL || 'http://localhost:3002';
     const shoppepayUrl = process.env.SHOPPEPAY_GATEWAY_URL || process.env.SHOPPEPAY_URL || 'http://localhost:3003';
-    const gopayKey = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
-    const shoppepayKey = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+    const gopayKey = requiredSecret('GOPAY_GATEWAY_API_KEY');
+    const shoppepayKey = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
 
     // Check both or check gopay then shoppepay
     try {

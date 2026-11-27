@@ -16,7 +16,11 @@ async function runSecurityTests() {
 
     // 0. Setup Real Admin Session File
     const sessionId = `admin_sec_test_${Date.now()}`;
-    const SECRET = process.env.SESSION_SECRET || 'ry-itsolutions-secret-key-2026';
+    const SECRET = process.env.SESSION_SECRET;
+    if (!SECRET) {
+        console.error('SESSION_SECRET wajib diset di env untuk menjalankan test ini.');
+        process.exit(1);
+    }
     const cookieSignature = require('cookie-signature');
     const signedCookie = 's:' + cookieSignature.sign(sessionId, SECRET);
     const sessionDir = path.join(__dirname, '..', 'sessions');
@@ -57,8 +61,8 @@ async function runSecurityTests() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Cookie': `connect.sid=${encodeURIComponent(signedCookie)}`,
-                'x-internal-test-key': 'ry-internal-test-pass'
+                'Cookie': `connect.sid=${encodeURIComponent(signedCookie)}`
+                // Header bypass x-internal-test-key sudah dihapus dari limiter (hanya NODE_ENV=test)
             },
             body: JSON.stringify(dirtyPayload)
         });

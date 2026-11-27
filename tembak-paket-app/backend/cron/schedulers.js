@@ -11,6 +11,7 @@ const fetch = require('node-fetch');
 const { dbGet, dbAll, dbRun } = require('../config/db');
 const { sseSend } = require('../middleware/auth');
 const { sendTelegramNotification } = require('../telegramService');
+const { requiredSecret } = require('../utils/secrets');
 const { getKmspAdminBalance } = require('../routes/transactions');
 const { getEffectiveMaintenanceStatus } = require('../routes/auth');
 const ceirgoClient = require('../ceirgoClient');
@@ -93,7 +94,7 @@ async function checkAdminGopayHealthWatchdog() {
         if (activeGateway !== 'gopay') return; // Only alert if admin chose GoPay as active gateway
 
         const gopayGatewayUrl = process.env.GOPAY_GATEWAY_URL || 'http://127.0.0.1:3002';
-        const apiKey = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
+        const apiKey = requiredSecret('GOPAY_GATEWAY_API_KEY');
 
         let isHealthy = false;
         let statusMsg = 'Sesi belum login / Server habis reboot';

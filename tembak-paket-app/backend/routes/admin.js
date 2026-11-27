@@ -14,6 +14,8 @@ const axios = require('axios');
 const { db, dbGet, dbAll, dbRun } = require('../config/db');
 const { isAuthenticated, isAdmin, sseSend, sseBroadcast } = require('../middleware/auth');
 const { sendTelegramNotification } = require('../telegramService');
+const { requiredSecret, safeSecretMatch } = require('../utils/secrets');
+const INTERNAL_API_KEY = requiredSecret('INTERNAL_API_KEY');
 const { getKmspAdminBalance } = require('./transactions');
 const servicesRoutes = require('./services');
 const getImeiServiceSettingsPublic = servicesRoutes.getImeiServiceSettings;
@@ -1684,8 +1686,8 @@ router.post('/admin/dual-gateway/simulate-rotation', isAuthenticated, isAdmin, a
 router.get('/admin/dual-gateway/health', isAuthenticated, isAdmin, async (req, res) => {
     const gopayUrl = process.env.GOPAY_GATEWAY_URL || 'http://localhost:3002';
     const shoppepayUrl = process.env.SHOPPEPAY_GATEWAY_URL || 'http://localhost:3003';
-    const gopayKey = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
-    const shoppepayKey = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+    const gopayKey = requiredSecret('GOPAY_GATEWAY_API_KEY');
+    const shoppepayKey = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
 
     const results = {
         gopay: { online: false, message: '', latency_ms: null },
@@ -2141,8 +2143,13 @@ router.post(['/admin/baileys/logout', '/admin/wabot/logout', '/admin/whatsapp/lo
 
 // 23b. POST /api/admin/test-warranty-claim-wa
 router.post('/admin/test-warranty-claim-wa', (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || "";
-    if (req.headers["x-internal-key"] === "tembak_internal_wa_2026" || ip.includes("127.0.0.1") || ip.includes("::1") || ip.includes("localhost")) {
+    const providedKey = req.headers["x-internal-key"];
+    // Fail-closed: if INTERNAL_API_KEY not configured, header path is completely disabled
+    const validHeader = !!INTERNAL_API_KEY && safeSecretMatch(providedKey, INTERNAL_API_KEY);
+    // Localhost check via socket address (not spoofable via headers)
+    const socketAddr = req.socket?.remoteAddress || req.connection?.remoteAddress || "";
+    const isLocalhost = socketAddr === "127.0.0.1" || socketAddr === "::1" || socketAddr === "::ffff:127.0.0.1";
+    if (validHeader || isLocalhost) {
         return next();
     }
     return isAuthenticated(req, res, () => isAdmin(req, res, next));
@@ -2166,8 +2173,10 @@ router.post('/admin/test-warranty-claim-wa', (req, res, next) => {
 });
 
 router.post(['/admin/baileys/test', '/admin/wabot/test', '/admin/whatsapp/test'], (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || "";
-    if (req.headers["x-internal-key"] === "tembak_internal_wa_2026" || ip.includes("127.0.0.1") || ip.includes("::1") || ip.includes("localhost")) {
+    const providedKey = req.headers['x-internal-key'];
+    const socketAddr = req.socket?.remoteAddress || req.connection?.remoteAddress || "";
+    const isLocalhost = socketAddr === '127.0.0.1' || socketAddr === '::1' || socketAddr === '::ffff:127.0.0.1';
+    if (safeSecretMatch(providedKey, INTERNAL_API_KEY) || isLocalhost) {
         return next();
     }
     return isAuthenticated(req, res, () => isAdmin(req, res, next));
@@ -2187,8 +2196,10 @@ router.post(['/admin/baileys/test', '/admin/wabot/test', '/admin/whatsapp/test']
 });
 
 router.post(['/admin/story/trigger-update', '/story/trigger-update'], (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || "";
-    if (req.headers["x-internal-key"] === "tembak_internal_wa_2026" || ip.includes("127.0.0.1") || ip.includes("::1") || ip.includes("localhost")) {
+    const providedKey = req.headers['x-internal-key'];
+    const socketAddr = req.socket?.remoteAddress || req.connection?.remoteAddress || "";
+    const isLocalhost = socketAddr === '127.0.0.1' || socketAddr === '::1' || socketAddr === '::ffff:127.0.0.1';
+    if (safeSecretMatch(providedKey, INTERNAL_API_KEY) || isLocalhost) {
         return next();
     }
     return isAuthenticated(req, res, () => isAdmin(req, res, next));
@@ -2228,8 +2239,10 @@ router.post(['/admin/story/trigger-update', '/story/trigger-update'], (req, res,
 });
 
 router.post(['/admin/baileys/test-suite', '/admin/wabot/test-suite', '/admin/whatsapp/test-suite'], (req, res, next) => {
-    const ip = req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || "";
-    if (req.headers["x-internal-key"] === "tembak_internal_wa_2026" || ip.includes("127.0.0.1") || ip.includes("::1") || ip.includes("localhost")) {
+    const providedKey = req.headers['x-internal-key'];
+    const socketAddr = req.socket?.remoteAddress || req.connection?.remoteAddress || "";
+    const isLocalhost = socketAddr === '127.0.0.1' || socketAddr === '::1' || socketAddr === '::ffff:127.0.0.1';
+    if (safeSecretMatch(providedKey, INTERNAL_API_KEY) || isLocalhost) {
         return next();
     }
     return isAuthenticated(req, res, () => isAdmin(req, res, next));
@@ -2386,7 +2399,7 @@ router.post(['/admin/baileys/test-suite', '/admin/wabot/test-suite', '/admin/wha
 
 // 24. GoPay Merchant Gateway Proxy Endpoints (Port 3002)
 const GOPAY_GW_URL = process.env.GOPAY_GATEWAY_URL || 'http://127.0.0.1:3002';
-const GOPAY_GW_KEY = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
+const GOPAY_GW_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
 
 router.get('/admin/gopay/status', isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -2562,7 +2575,7 @@ router.post('/admin/gopay/logout', isAuthenticated, isAdmin, async (req, res) =>
 
 // 25. ShopeePay Merchant Gateway Proxy Endpoints (Port 3003)
 const SHOPPEPAY_GW_URL = process.env.SHOPPEPAY_GATEWAY_URL || 'http://127.0.0.1:3003';
-const SHOPPEPAY_GW_KEY = process.env.SHOPPEPAY_API_KEY || process.env.API_KEY || 'shopee-secret-key-2026';
+const SHOPPEPAY_GW_KEY = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
 
 router.get('/admin/shoppepay/status', isAuthenticated, isAdmin, async (req, res) => {
     try {

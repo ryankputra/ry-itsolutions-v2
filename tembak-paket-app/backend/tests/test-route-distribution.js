@@ -6,7 +6,11 @@ const path = require('path');
 const cookieSignature = require('cookie-signature');
 
 const BASE_URL = process.env.TEST_URL || 'http://localhost:3001';
-const SECRET = process.env.SESSION_SECRET || 'ry-itsolutions-secret-key-2026';
+const SECRET = process.env.SESSION_SECRET;
+if (!SECRET) {
+    console.error('SESSION_SECRET wajib diset di env untuk menjalankan test ini.');
+    process.exit(1);
+}
 
 async function runRouteDistributionTests() {
     console.log(`\n===============================================================`);

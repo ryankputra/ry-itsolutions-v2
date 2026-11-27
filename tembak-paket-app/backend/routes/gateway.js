@@ -12,9 +12,10 @@ const path = require('path');
 const axios = require('axios');
 const { dbGet, dbAll, dbRun } = require('../config/db');
 const { isAuthenticated, sseSend } = require('../middleware/auth');
+const { requiredSecret, safeSecretMatch } = require('../utils/secrets');
 
 const GOPAY_GATEWAY_URL = process.env.GOPAY_GATEWAY_URL || 'http://localhost:3002';
-const GOPAY_GATEWAY_API_KEY = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
+const GOPAY_GATEWAY_API_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
 const ACTIVATION_PRICE = 35000; // Biaya Aktivasi Perdana (Sudah termasuk 30 hari aktif)
 const SUBSCRIPTION_PRICE_PER_MONTH = 10000; // Biaya Perpanjangan Bulanan berikutnya
 
@@ -690,7 +691,7 @@ async function notifyTenantSessionExpired(keyId) {
 router.post('/gateway/internal/notify-expired', async (req, res) => {
     try {
         const { keyId, secret } = req.body;
-        if (secret !== GOPAY_GATEWAY_API_KEY && secret !== 'ryy-gopay-secret-key-2026') {
+        if (!safeSecretMatch(secret, GOPAY_GATEWAY_API_KEY)) {
             return res.status(403).json({ status: false, message: 'Unauthorized' });
         }
         if (!keyId) {

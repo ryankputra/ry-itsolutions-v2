@@ -1363,8 +1363,9 @@ PANDUAN MENJAWAB:
 
 // Trigger/Re-sync Rivera Story via active Baileys instance inside PM2 backend (Admin or Localhost only)
 router.post('/rivera/sync-story', (req, res, next) => {
-    const clientIp = req.ip || req.connection?.remoteAddress || '';
-    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.includes('127.0.0.1');
+    // Pakai socket address (bukan req.ip) supaya tidak bisa dipalsukan lewat X-Forwarded-For
+    const socketAddr = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+    const isLocal = socketAddr === '127.0.0.1' || socketAddr === '::1' || socketAddr === '::ffff:127.0.0.1';
     if (isLocal) return next();
     return isAdmin(req, res, next);
 }, async (req, res) => {
@@ -1383,8 +1384,9 @@ router.post('/rivera/sync-story', (req, res, next) => {
 
 // Trigger/Re-send pending testimonial to WhatsApp Admin (Admin or Localhost only)
 router.post('/testi/resend', (req, res, next) => {
-    const clientIp = req.ip || req.connection?.remoteAddress || '';
-    const isLocal = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.includes('127.0.0.1');
+    // Pakai socket address (bukan req.ip) supaya tidak bisa dipalsukan lewat X-Forwarded-For
+    const socketAddr = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+    const isLocal = socketAddr === '127.0.0.1' || socketAddr === '::1' || socketAddr === '::ffff:127.0.0.1';
     if (isLocal) return next();
     return isAdmin(req, res, next);
 }, async (req, res) => {

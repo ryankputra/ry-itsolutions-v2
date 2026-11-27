@@ -15,6 +15,7 @@ const qrcode = require('qrcode');
 const { dbGet, dbAll, dbRun } = require('../config/db');
 const { isAuthenticated, sseSend } = require('../middleware/auth');
 const { escapeHtml, sendTelegramNotification } = require('../telegramService');
+const { requiredSecret } = require('../utils/secrets');
 const { sendManualOrderNotification } = require('./telegram');
 const { notifyNewOrder, notifyPaymentSuccessToAdmin } = require('../services/waBot');
 const { getPaymentGatewaySelection, advancePaymentCounter } = require('../services/paymentRouter');
@@ -560,7 +561,7 @@ function checkGopayPaymentStatus(id, amount, gopayTrxId, startTime) {
 // ShopeePay QRIS Polling (Mendukung Topup Saldo & Pembelian Langsung Direct QRIS)
 function checkShopeePaymentStatus(id, amount, startTime) {
     const URL = process.env.SHOPPEPAY_GATEWAY_URL || process.env.SHOPPEPAY_URL || 'http://localhost:3003';
-    const API_KEY = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+    const API_KEY = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
     const maxDurationMs = 5 * 60 * 1000;
     const interval = 8000;
 
@@ -2118,7 +2119,7 @@ router.get('/topup/latest-status', isAuthenticated, async (req, res) => {
             if (topUp.id.startsWith('TU-SP-')) {
                 try {
                     const URL = process.env.SHOPPEPAY_GATEWAY_URL || process.env.SHOPPEPAY_URL || 'http://localhost:3003';
-                    const API_KEY = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+                    const API_KEY = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
                     const response = await axios.post(`${URL}/check-payment`, {
                         amount: topUp.baseAmount,
                         startTime: Math.floor(new Date(topUp.createdAt).getTime() / 1000)
@@ -2136,7 +2137,7 @@ router.get('/topup/latest-status', isAuthenticated, async (req, res) => {
             } else if (topUp.id.startsWith('TU-GP-') || topUp.gopayTrxId) {
                 try {
                     const URL = process.env.GOPAY_GATEWAY_URL || 'http://localhost:3002';
-                    const API_KEY = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
+                    const API_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
                     const response = await axios.get(`${URL}/check-payment`, {
                         params: { amount: topUp.baseAmount, trx_id: topUp.gopayTrxId || undefined, api_key: API_KEY, start_time: topUp.createdAt },
                         timeout: 10000
@@ -2173,7 +2174,7 @@ router.get('/topup/status/:topUpId', isAuthenticated, async (req, res) => {
                 if (isShopee) {
                     try {
                         const URL = process.env.SHOPPEPAY_GATEWAY_URL || process.env.SHOPPEPAY_URL || 'http://localhost:3003';
-                        const API_KEY = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+                        const API_KEY = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
                         const response = await axios.post(`${URL}/check-payment`, {
                             amount: trx.platformFee || trx.originalPrice,
                             startTime: Math.floor(new Date(trx.createdAt).getTime() / 1000)
@@ -2190,7 +2191,7 @@ router.get('/topup/status/:topUpId', isAuthenticated, async (req, res) => {
                 } else {
                     try {
                         const URL = process.env.GOPAY_GATEWAY_URL || 'http://localhost:3002';
-                        const API_KEY = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
+                        const API_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
                         const response = await axios.get(`${URL}/check-payment`, {
                             params: { amount: trx.platformFee || trx.originalPrice, trx_id: trx.id, api_key: API_KEY, start_time: trx.createdAt },
                             timeout: 10000
@@ -2214,7 +2215,7 @@ router.get('/topup/status/:topUpId', isAuthenticated, async (req, res) => {
             if (topUp.id.startsWith('TU-SP-')) {
                 try {
                     const URL = process.env.SHOPPEPAY_GATEWAY_URL || process.env.SHOPPEPAY_URL || 'http://localhost:3003';
-                    const API_KEY = process.env.SHOPPEPAY_GATEWAY_API_KEY || 'shopee-secret-key-2026';
+                    const API_KEY = requiredSecret('SHOPPEPAY_GATEWAY_API_KEY');
                     const response = await axios.post(`${URL}/check-payment`, {
                         amount: topUp.baseAmount,
                         startTime: Math.floor(new Date(topUp.createdAt).getTime() / 1000)
@@ -2232,7 +2233,7 @@ router.get('/topup/status/:topUpId', isAuthenticated, async (req, res) => {
             } else if (topUp.id.startsWith('TU-GP-') || topUp.gopayTrxId) {
                 try {
                     const URL = process.env.GOPAY_GATEWAY_URL || 'http://localhost:3002';
-                    const API_KEY = process.env.GOPAY_GATEWAY_API_KEY || 'ryy-gopay-secret-key-2026';
+                    const API_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
                     const response = await axios.get(`${URL}/check-payment`, {
                         params: { amount: topUp.baseAmount, trx_id: topUp.gopayTrxId || undefined, api_key: API_KEY, start_time: topUp.createdAt },
                         timeout: 10000

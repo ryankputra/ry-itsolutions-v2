@@ -5,6 +5,7 @@ if (typeof dns.setDefaultResultOrder === 'function') {
 }
 const path = require('path');
 const fs = require('fs');
+const { requiredSecret } = require('./utils/secrets');
 
 // Fallback defaults for critical environment variables
 process.env.PORT = process.env.PORT || '3001';
@@ -12,7 +13,7 @@ process.env.CEIRGO_BASE_URL = process.env.CEIRGO_BASE_URL || 'https://ceirgo.id'
 process.env.QRIS_NOBU_STATIS_STRING = process.env.QRIS_NOBU_STATIS_STRING || process.env.QRIS_STATIS_STRING || "00020101021126670016COM.NOBUBANK.WWW01189360050300000879140214550177920473550303UMI51440014ID.CO.QRIS.WWW0215ID20253782970190303UMI5204541153033605802ID5918RYYSTORE OK22859056009SURAKARTA61055712462070703A016304774D";
 process.env.QRIS_GOPAY_STATIS_STRING = process.env.QRIS_GOPAY_STATIS_STRING || "00020101021126610014COM.GO-JEK.WWW01189360091432137105260210G2137105260303UMI51440014ID.CO.QRIS.WWW0215ID10264985528880303UMI5204737953033605802ID5921RyyStore IT Solutions6011KARANGANYAR61055773162070703A016304F027";
 process.env.QRIS_STATIS_STRING = process.env.QRIS_NOBU_STATIS_STRING;
-process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'ryystore_secure_session_secret_2026';
+// SESSION_SECRET: dibaca via requiredSecret() di sessionConfig, tidak di-set di process.env lagi
 
 console.log(`[CEIRGO_INIT] API Key Loaded: ${process.env.CEIRGO_API_KEY ? 'YES' : 'NO'}`);
 console.log(`[QRIS_INIT] Nobu/Orkut String: ${process.env.QRIS_NOBU_STATIS_STRING ? 'CONFIGURED' : 'MISSING'} | GoPay String: ${process.env.QRIS_GOPAY_STATIS_STRING ? 'CONFIGURED' : 'MISSING'}`);
@@ -54,7 +55,9 @@ const PORT = process.env.PORT || 3001;
 const CEIRGO_API_KEY = process.env.CEIRGO_API_KEY;
 const CEIRGO_BASE_URL = process.env.CEIRGO_BASE_URL || 'https://ceirgo.my.id';
 
-// Trust reverse proxy headers (Nginx / Cloudflare on STB/VPS)
+// Trust reverse proxy headers (Cloudflare -> app = 1 hop)
+// Set to false for stricter IP handling (prevents spoofing via X-Forwarded-For)
+// If set to false, req.ip becomes the Cloudflare edge IP, and localhost whitelist must use socket address
 app.set('trust proxy', 1);
 
 // 1. Ensure required public/upload directories exist
@@ -132,13 +135,15 @@ app.use([
     '/api/auth/register',
     '/api/auth/google',
     '/api/auth/forgot-password',
-    '/api/auth/verify-otp',
     '/api/auth/register-request-otp',
     '/api/auth/register-verify-otp',
     '/api/auth/forgot-password-request',
     '/api/auth/forgot-password-verify',
+    '/api/auth/reset-password',
     '/api/user/request-email-otp',
     '/api/user/verify-email-otp',
+    '/api/phone/request-otp',
+    '/api/phone/verify-otp',
     '/api/coupons/claim',
     '/api/order/ceir',
     '/api/order/barcode',
@@ -152,11 +157,11 @@ const sessionConfig = {
         ttl: 86400 * 7,
         retries: 2
     }),
-    secret: process.env.SESSION_SECRET || 'ry-itsolutions-secret-key-2026',
+    secret: requiredSecret('SESSION_SECRET'),
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // Set to true if behind HTTPS reverse proxy with trust proxy
+        secure: process.env.SESSION_COOKIE_SECURE === 'true' || (process.env.NODE_ENV === 'production' && process.env.SESSION_COOKIE_SECURE !== 'false'),
         httpOnly: true,
         maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: 'lax'

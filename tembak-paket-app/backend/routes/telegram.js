@@ -9,6 +9,7 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 
 const { dbGet, dbAll, dbRun } = require('../config/db');
+const { safeSecretMatch } = require('../utils/secrets');
 const {
     escapeHtml,
     sendTelegramNotification,
@@ -680,7 +681,7 @@ async function handleTelegramCallbackQuery(cb) {
 // Telegram Official Webhook Handler
 router.post('/telegram/webhook', async (req, res) => {
     const secret = req.headers['x-telegram-bot-api-secret-token'];
-    if (!secret || secret !== TELEGRAM_WEBHOOK_SECRET) {
+    if (!safeSecretMatch(secret, TELEGRAM_WEBHOOK_SECRET)) {
         return res.status(403).json({ ok: false, error: 'Unauthorized secret token' });
     }
 
