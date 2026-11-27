@@ -16,6 +16,7 @@ const { dbGet, dbAll, dbRun } = require('../config/db');
 const { isAuthenticated, sseSend } = require('../middleware/auth');
 const { escapeHtml, sendTelegramNotification } = require('../telegramService');
 const { requiredSecret } = require('../utils/secrets');
+const GOPAY_GATEWAY_API_KEY = requiredSecret('GOPAY_GATEWAY_API_KEY');
 const { sendManualOrderNotification } = require('./telegram');
 const { notifyNewOrder, notifyPaymentSuccessToAdmin } = require('../services/waBot');
 const { getPaymentGatewaySelection, advancePaymentCounter } = require('../services/paymentRouter');
@@ -100,7 +101,7 @@ async function getKmspAdminBalance() {
 // Gopay QRIS Helpers (Direct Gateway with Standalone Fallback)
 async function generateGopayQris(amount) {
     const URL = process.env.GOPAY_GATEWAY_URL;
-    const API_KEY = process.env.GOPAY_GATEWAY_API_KEY;
+    const API_KEY = GOPAY_GATEWAY_API_KEY;
 
     if (URL && API_KEY) {
         try {
@@ -505,7 +506,7 @@ async function fulfillPaidTransaction(trxId, refTag = '') {
 // Gopay QRIS Polling
 function checkGopayPaymentStatus(id, amount, gopayTrxId, startTime) {
     const URL = process.env.GOPAY_GATEWAY_URL;
-    const API_KEY = process.env.GOPAY_GATEWAY_API_KEY;
+    const API_KEY = GOPAY_GATEWAY_API_KEY;
     if (!URL || !API_KEY) return;
     const maxDurationMs = 5 * 60 * 1000;
     const interval = 8000;

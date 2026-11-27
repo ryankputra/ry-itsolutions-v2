@@ -57,6 +57,53 @@ const avatarUpload = multer({
     fileFilter: imageFileFilter
 });
 
+// Maximum OTP verification attempts before the OTP record is invalidated (VULN-09).
+const MAX_OTP_ATTEMPTS = 5;
+
+/**
+ * Increment the failed-attempt counter for an OTP record (VULN-09).
+ * Returns the new attempt count. The counter lives in `email_verifications.attempts`
+ * and is reset to 0 whenever a fresh OTP is issued (INSERT OR REPLACE).
+ */
+async function incrementOtpAttempts(email, type) {
+    try {
+        await dbRun(
+            'UPDATE email_verifications SET attempts = COALESCE(attempts, 0) + 1 WHERE email = ? AND type = ?',
+            [email, type]
+        );
+        const row = await dbGet(
+            'SELECT attempts FROM email_verifications WHERE email = ? AND type = ?',
+            [email, type]
+        );
+        return Number(row?.attempts || 0);
+    } catch (e) {
+        console.error(`[OTP Attempts] gagal menambah counter (${type}):`, e.message);
+        return 0;
+    }
+}
+
+/**
+ * Handle a wrong OTP submission (VULN-09).
+ * Counts the attempt, and once MAX_OTP_ATTEMPTS is reached the OTP record is
+ * deleted so the code can never be brute-forced; the user must request a new OTP.
+ */
+async function handleWrongOtp(req, res, email, type, message) {
+    const attempts = await incrementOtpAttempts(email, type);
+    if (attempts >= MAX_OTP_ATTEMPTS) {
+        await dbRun('DELETE FROM email_verifications WHERE email = ? AND type = ?', [email, type]);
+        console.warn(`[OTP Lockout] ${type}:=${email} terkunci setelah ${attempts} percobaan salah`);
+        return res.status(429).json({
+            status: false,
+            message: "Terlalu banyak percobaan kode OTP yang salah. Silakan minta kode OTP baru.",
+            locked: true
+        });
+    }
+    return res.status(400).json({
+        status: false,
+        message: `${message} Sisa percobaan: ${MAX_OTP_ATTEMPTS - attempts}.`
+    });
+}
+
 // Helper for effective maintenance
 async function getEffectiveMaintenanceStatus() {
     try {
@@ -275,7 +322,7 @@ router.post('/auth/register-request-otp', async (req, res) => {
         });
 
         await dbRun(
-            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts) VALUES (?, ?, ?, ?, ?, ?, 0)',
             [validEmail, otp, 'register', payload, expiresAt, new Date().toISOString()]
         );
 
@@ -320,7 +367,7 @@ router.post('/auth/register-verify-otp', async (req, res) => {
         }
 
         if (record.otp !== otp.trim()) {
-            return res.status(400).json({ status: false, message: "Kode verifikasi OTP salah. Silakan periksa kembali email Anda." });
+            return await handleWrongOtp(req, res, validEmail, 'register', "Kode verifikasi OTP salah. Silakan periksa kembali email Anda.");
         }
 
         const data = JSON.parse(record.payload);
@@ -557,7 +604,7 @@ router.post('/auth/forgot-password-request', async (req, res) => {
         const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
 
         await dbRun(
-            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts) VALUES (?, ?, ?, ?, ?, ?, 0)',
             [validEmail, otp, 'forgot_password', JSON.stringify({ userId: user.id }), expiresAt, new Date().toISOString()]
         );
 
@@ -603,7 +650,7 @@ router.post('/auth/forgot-password-verify', async (req, res) => {
         }
 
         if (record.otp !== otp.trim()) {
-            return res.status(400).json({ status: false, message: "Kode verifikasi OTP salah." });
+            return await handleWrongOtp(req, res, validEmail, 'forgot_password', "Kode verifikasi OTP salah.");
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -853,7 +900,7 @@ router.post('/user/request-email-otp', isAuthenticated, async (req, res) => {
         const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
 
         await dbRun(
-            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT OR REPLACE INTO email_verifications (email, otp, type, payload, expires_at, created_at, attempts) VALUES (?, ?, ?, ?, ?, ?, 0)',
             [validEmail, otp, 'change_email', JSON.stringify({ userId: req.session.userId, newEmail: validEmail }), expiresAt, new Date().toISOString()]
         );
 
@@ -895,7 +942,7 @@ router.post('/user/verify-email-otp', isAuthenticated, async (req, res) => {
         }
 
         if (record.otp !== String(otp).trim()) {
-            return res.status(400).json({ status: false, message: "Kode OTP verifikasi salah." });
+            return await handleWrongOtp(req, res, validEmail, 'change_email', "Kode OTP verifikasi salah.");
         }
 
         let payload = {};

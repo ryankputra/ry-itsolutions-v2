@@ -75,7 +75,21 @@ uploadDirs.forEach(dir => {
 
 // 2. Security Headers (Helmet)
 app.use(helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            frameAncestors: ["'none'"],
+            // Allow inline scripts/styles for admin dashboard & theme engine
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+            fontSrc: ["'self'", "data:"],
+            connectSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"]
+        }
+    },
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
     frameguard: { action: 'deny' }
@@ -170,9 +184,19 @@ const sessionConfig = {
 app.use(session(sessionConfig));
 
 // 4. Static Asset Hosting
-app.use('/public', express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
-app.use(express.static(path.join(__dirname, 'public')));
+// nosniff everywhere; Content-Disposition: attachment for /uploads except avatars (needed for inline <img>)
+function setStaticHeaders(res, filePath) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // /uploads/avatars/ -> inline (no attachment header)
+    // other /uploads/* -> attachment (force download)
+    if (filePath.includes('/uploads/') && !filePath.includes('/uploads/avatars/')) {
+        res.setHeader('Content-Disposition', 'attachment');
+    }
+}
+
+app.use('/public', express.static(path.join(__dirname, 'public'), { setHeaders: setStaticHeaders }));
+app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads'), { setHeaders: setStaticHeaders }));
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: setStaticHeaders }));
 
 // 5. Database Initialization
 initializeDatabase();
