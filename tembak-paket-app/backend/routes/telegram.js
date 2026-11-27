@@ -155,9 +155,55 @@ async function answerCallback(callbackQueryId, text) {
     });
 }
 
+async function sendSystemStatus(chatId) {
+    try {
+        const pendingTrx = await dbGet("SELECT COUNT(*) as total FROM transactions WHERE status IN ('pending', 'processing', 'in_queue', 'menunggu_saldo_provider')");
+        const successTrx = await dbGet("SELECT COUNT(*) as total FROM transactions WHERE status IN ('success', 'completed')");
+        const totalUsers = await dbGet("SELECT COUNT(*) as total FROM users");
+        const uptimeMinutes = Math.floor((Date.now() - APP_START_TIME) / 60000);
+
+        const statusText = `🖥️ <b>STATUS SISTEM RY-ITSOLUTIONS</b>\n\n` +
+            `🟢 <b>Server:</b> Online (Uptime: ${uptimeMinutes} menit)\n` +
+            `🗄️ <b>Database:</b> SQLite3 (Terhubung & Terverifikasi)\n` +
+            `👥 <b>Total Pengguna:</b> ${totalUsers?.total || 0} akun\n` +
+            `⏳ <b>Transaksi Antrean:</b> ${pendingTrx?.total || 0} pesanan\n` +
+            `✅ <b>Transaksi Sukses:</b> ${successTrx?.total || 0} pesanan\n` +
+            `🛡️ <b>Webhook Mode:</b> Aktif (Secret Token Protected)`;
+        await sendTelegramText(chatId, statusText);
+    } catch (e) {
+        await sendTelegramText(chatId, `❌ Gagal mengambil status sistem: ${escapeHtml(e.message)}`);
+    }
+}
+
+async function sendBalanceInfo(chatId) {
+    try {
+        const userTotalBalance = await dbGet("SELECT SUM(balance) as total FROM users");
+        const totalBalanceFormatted = Number(userTotalBalance?.total || 0).toLocaleString('id-ID');
+        const balanceText = `💰 <b>INFORMASI SALDO SISTEM</b>\n\n` +
+            `👥 <b>Total Saldo Seluruh Pengguna:</b> Rp ${totalBalanceFormatted}\n` +
+            `⏰ <b>Diperbarui:</b> ${new Date().toLocaleTimeString('id-ID')}`;
+        await sendTelegramText(chatId, balanceText);
+    } catch (e) {
+        await sendTelegramText(chatId, `❌ Gagal mengambil info saldo: ${escapeHtml(e.message)}`);
+    }
+}
+
+async function sendBotHelp(chatId) {
+    const helpText = `📖 <b>PANDUAN PERINTAH BOT TELEGRAM RY-ITSOLUTIONS</b>\n\n` +
+        `🔹 <code>/status</code> : Cek status server, database, dan transaksi aktif\n` +
+        `🔹 <code>/balance</code> atau <code>/saldo</code> : Cek saldo KMSP & ringkasan saldo pengguna\n` +
+        `🔹 <code>/profile</code> atau <code>/me</code> : Informasi akun Telegram & otorisasi\n` +
+        `🔹 <code>/cek [TRX_ID]</code> : Cek detail transaksi berdasarkan ID\n` +
+        `🔹 <code>/broadcast [Pesan]</code> : Kirim pesan broadcast ke grup notifikasi\n` +
+        `🔹 <code>/ulasan [Nama|Rating|Komentar|Variasi]</code> : Tambah ulasan dummy cepat\n` +
+        `🔹 <code>/menu</code> : Buka panel tombol ulasan & navigasi`;
+    await sendTelegramText(chatId, helpText);
+}
+
 const telegramAdminMainMenu = [
     [
-        { text: "📦 Antrean Pesanan Masuk", callback_data: "tg_orders_list" }
+        { text: "📦 Antrean Pesanan Masuk", callback_data: "tg_orders_list" },
+        { text: "🖥️ Status Server & DB", callback_data: "tg_server_status" }
     ],
     [
         { text: "➕ Tambah Ulasan", callback_data: "tg_rev_add_guide" },
@@ -165,7 +211,8 @@ const telegramAdminMainMenu = [
     ],
     [
         { text: "📋 5 Ulasan Terbaru", callback_data: "tg_rev_list" },
-        { text: "🖥️ Status Server & DB", callback_data: "tg_server_status" }
+        { text: "💰 Saldo Sistem", callback_data: "tg_cmd_balance" },
+        { text: "📖 Bantuan Bot", callback_data: "tg_cmd_help" }
     ]
 ];
 const telegramReviewMainMenu = telegramAdminMainMenu;
@@ -209,10 +256,12 @@ async function sendPendingOrdersList(chatId) {
             const photoRel = (o.user_image || o.user_image_ceir || '').split(',')[0].trim();
             const photoLocal = photoRel ? path.join(__dirname, '..', photoRel) : null;
 
+            const orderKeyboard = getInlineKeyboard(o.id).inline_keyboard;
+            orderKeyboard.push([{ text: "🔒 Tutup Daftar", callback_data: "tg_orders_close" }]);
             if (photoLocal && fs.existsSync(photoLocal)) {
                 await sendManualOrderNotification(cardMsg, o.id, photoLocal);
             } else {
-                await sendTelegramButtons(chatId, cardMsg, getInlineKeyboard(o.id).inline_keyboard);
+                await sendTelegramButtons(chatId, cardMsg, orderKeyboard);
             }
             await new Promise(r => setTimeout(r, 100));
         }
@@ -253,15 +302,7 @@ async function handleTelegramMessage(msg) {
 
     // 2. Command /help, /bantuan
     if (text === '/help' || text === '/bantuan') {
-        const helpText = `📖 <b>PANDUAN PERINTAH BOT TELEGRAM RY-ITSOLUTIONS</b>\n\n` +
-            `🔹 <code>/status</code> : Cek status server, database, dan transaksi aktif\n` +
-            `🔹 <code>/balance</code> atau <code>/saldo</code> : Cek saldo KMSP & ringkasan saldo pengguna\n` +
-            `🔹 <code>/profile</code> atau <code>/me</code> : Informasi akun Telegram & otorisasi\n` +
-            `🔹 <code>/cek [TRX_ID]</code> : Cek detail transaksi berdasarkan ID\n` +
-            `🔹 <code>/broadcast [Pesan]</code> : Kirim pesan broadcast ke grup notifikasi\n` +
-            `🔹 <code>/ulasan [Nama|Rating|Komentar|Variasi]</code> : Tambah ulasan dummy cepat\n` +
-            `🔹 <code>/menu</code> : Buka panel tombol ulasan & navigasi`;
-        await sendTelegramText(chatId, helpText);
+        await sendBotHelp(chatId);
         return;
     }
 
@@ -289,17 +330,7 @@ async function handleTelegramMessage(msg) {
 
     // 4. Command /balance, /saldo
     if (text === '/balance' || text === '/saldo') {
-        try {
-            const userTotalBalance = await dbGet("SELECT SUM(balance) as total FROM users");
-            const totalBalanceFormatted = Number(userTotalBalance?.total || 0).toLocaleString('id-ID');
-
-            const balanceText = `💰 <b>INFORMASI SALDO SISTEM</b>\n\n` +
-                `👥 <b>Total Saldo Seluruh Pengguna:</b> Rp ${totalBalanceFormatted}\n` +
-                `⏰ <b>Diperbarui:</b> ${new Date().toLocaleTimeString('id-ID')}`;
-            await sendTelegramText(chatId, balanceText);
-        } catch (e) {
-            await sendTelegramText(chatId, `❌ Gagal mengambil info saldo: ${escapeHtml(e.message)}`);
-        }
+        await sendBalanceInfo(chatId);
         return;
     }
 
@@ -462,6 +493,28 @@ async function handleTelegramCallbackQuery(cb) {
             await sendTelegramButtons(chatId, statusText, [[{ text: "🔙 Kembali ke Menu", callback_data: "tg_rev_main_menu" }]]);
         } catch (e) {
             await sendTelegramText(chatId, `❌ Gagal: ${escapeHtml(e.message)}`);
+        }
+        return;
+    }
+
+    if (data === 'tg_cmd_balance') {
+        await answerCallback(cbId, "Memeriksa info saldo sistem...");
+        await sendBalanceInfo(chatId);
+        return;
+    }
+
+    if (data === 'tg_cmd_help') {
+        await answerCallback(cbId, "Membuka panduan bot...");
+        await sendBotHelp(chatId);
+        return;
+    }
+
+    if (data === 'tg_orders_close') {
+        await answerCallback(cbId, "Menutup daftar pesanan.");
+        try {
+            await queueTelegramRequest('deleteMessage', { chat_id: chatId, message_id: messageId });
+        } catch (closeErr) {
+            console.error('[Telegram Callback] Gagal menutup daftar pesanan:', closeErr.message);
         }
         return;
     }
