@@ -114,7 +114,12 @@ jobs:
             --data-binary "@${TARBALL}" \
             "https://ry-itsolutionts.web.id/_deploy-artifact")"
           echo "Upload response: ${RESP}"
-          echo "${RESP}" | grep -q '"status":true' || { echo "::error::Upload artifact ditolak server"; exit 1; }
+          # Cek tanpa pipe: `echo ... | grep -q` bikin grep menutup pipe lebih
+          # dulu -> echo kena SIGPIPE -> set -o pipefail menggagalkan step
+          # walau isinya sudah cocok.
+          printf '%s' "${RESP}" > "$GITHUB_WORKSPACE/upload-resp.json"
+          grep -F -q '"status":true' "$GITHUB_WORKSPACE/upload-resp.json" \
+            || { echo "::error::Upload artifact ditolak server"; exit 1; }
 
       - name: Trigger STB Deploy & Restart
         env:
@@ -129,9 +134,11 @@ jobs:
             -H "x-webhook-secret: ${DEPLOY_SECRET}" \
             "https://ry-itsolutionts.web.id/_deploy")"
           echo "Deploy response: ${RESP}"
-          echo "${RESP}" | grep -q '"status":true' || { echo "::error::Deploy tidak laporan sukses"; exit 1; }
-          echo "${RESP}" | grep -q "${EXPECT_BUILD_ID}" \
-            || { echo "::error::BUILD_ID di server ($RESP) tidak sama dengan yang dibangun (${EXPECT_BUILD_ID})"; exit 1; }
+          printf '%s' "${RESP}" > "$GITHUB_WORKSPACE/deploy-resp.json"
+          grep -F -q '"status":true' "$GITHUB_WORKSPACE/deploy-resp.json" \
+            || { echo "::error::Deploy tidak laporan sukses"; exit 1; }
+          grep -F -q "${EXPECT_BUILD_ID}" "$GITHUB_WORKSPACE/deploy-resp.json" \
+            || { echo "::error::BUILD_ID di server (${RESP}) tidak sama dengan yang dibangun (${EXPECT_BUILD_ID})"; exit 1; }
 
       - name: Verify live site serves the new build
         env:
@@ -139,26 +146,35 @@ jobs:
           EXPECT_VERSION_TS: ${{ steps.meta.outputs.version_ts }}
         run: |
           set -euo pipefail
-          echo "Menunggu frontend STB comeback setelah PM2 restart..."
-          UP=0
-          for i in $(seq 1 40); do
+          # PENTING: /_deploy membalas 200 SEBELUM PM2 di-restart (restart
+          # dijadwalkan 2 detik setelah response terkirim). Jadi frontend masih
+          # serves build LAMA selama beberapa detik setelah /_deploy sukses.
+          # Verifikasi wajib nunggu sampai konten live benar-benar berubah,
+          # bukan cuma sampai HTTP 200 (200 itu taillek dari build lama).
+          echo "Menunggu frontend STB comeback dengan build baru..."
+          LIVE_VERSION=""
+          LIVE_HTML=""
+          OK=0
+          for i in $(seq 1 60); do
             CODE="$(curl -s -o /dev/null -w '%{http_code}' --http1.1 --max-time 15 https://ry-itsolutionts.web.id/ || true)"
             if [ "$CODE" = "200" ]; then
-              echo "Frontend comeback (HTTP ${CODE}) setelah ${i}x cek."
-              UP=1
-              break
+              LIVE_VERSION="$(curl -fsS --http1.1 --max-time 20 "https://ry-itsolutionts.web.id/version.json?t=$(date +%s%N)" || true)"
+              LIVE_HTML="$(curl -fsS --http1.1 --max-time 30 https://ry-itsolutionts.web.id/ || true)"
+              printf '%s' "${LIVE_VERSION}" > "$GITHUB_WORKSPACE/live-version.json"
+              printf '%s' "${LIVE_HTML}" > "$GITHUB_WORKSPACE/live-index.html"
+              if grep -F -q "${EXPECT_VERSION_TS}" "$GITHUB_WORKSPACE/live-version.json" \
+                && grep -F -q "${EXPECT_BUILD_ID}" "$GITHUB_WORKSPACE/live-index.html"; then
+                echo "Frontend sudah serves build baru setelah ${i}x cek (HTTP ${CODE})."
+                OK=1
+                break
+              fi
+              echo "Cek ${i}: HTTP ${CODE} tapi masih build lama (version.ts=${LIVE_VERSION:-kosong}), tunggu..."
+            else
+              echo "Cek ${i}: HTTP ${CODE}, frontend belum comeback..."
             fi
             sleep 5
           done
-          [ "$UP" = "1" ] || { echo "::error::Frontend tidak comeback dalam 200 detik"; exit 1; }
+          [ "$OK" = "1" ] || { echo "::error::Live site tidak menyajikan build baru dalam 300 detik"; exit 1; }
 
-          LIVE_VERSION="$(curl -fsS --http1.1 --max-time 20 "https://ry-itsolutionts.web.id/version.json?t=$(date +%s)")"
           echo "Live version.json: ${LIVE_VERSION}"
-          echo "${LIVE_VERSION}" | grep -q "${EXPECT_VERSION_TS}" \
-            || { echo "::error::Versi live tidak sama dengan build yang di-deploy"; exit 1; }
-
-          LIVE_HTML="$(curl -fsS --http1.1 --max-time 30 https://ry-itsolutionts.web.id/)"
-          echo "${LIVE_HTML}" | grep -q "${EXPECT_BUILD_ID}" \
-            || { echo "::error::HTML live tidak mengandung BUILD_ID ${EXPECT_BUILD_ID}"; exit 1; }
-
-          echo "OK: live site sudah memakai build baru."
+          echo "OK: live site sudah memakai build baru (BUILD_ID ${EXPECT_BUILD_ID})."
