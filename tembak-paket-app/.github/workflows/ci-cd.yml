@@ -1,0 +1,72 @@
+name: Build and Deploy STB
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tembak-paket-app/frontend-v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tembak-paket-app/frontend-v2/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Build Next.js
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+
+      - name: Package build (.next + public)
+        run: tar -czf "$GITHUB_WORKSPACE/frontend-next.tgz" .next public/version.json
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-next
+          path: frontend-next.tgz
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-next
+
+      - name: Upload Artifact to STB
+        env:
+          DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
+        run: |
+          echo "Uploading frontend-next.tgz to STB..."
+          curl -fsS -X POST \
+            -H "Content-Type: application/gzip" \
+            --data-binary "@frontend-next.tgz" \
+            "https://ry-itsolutionts.web.id/_deploy-artifact?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
+
+      - name: Trigger STB Deploy & Restart
+        env:
+          DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
+        run: |
+          echo "Triggering STB extract & restart..."
+          curl -fsS -X GET \
+            "https://ry-itsolutionts.web.id/_deploy?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
