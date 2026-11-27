@@ -21,3 +21,7 @@ tembak-paket-app/backend/backups/*
 .env.*
 node_modules/
 
+# Secret untuk endpoint self-deploy (jangan pernah di-commit)
+.deploy-secret
+**/.deploy-secret
+

@@ -3,7 +3,11 @@ const { parse } = require('url');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawn, execFile, execFileSync } = require('child_process');
+const { promisify } = require('util');
 const next = require('next');
+
+const execFileAsync = promisify(execFile);
 
 const dev = false;
 const hostname = '127.0.0.1';
@@ -159,9 +163,14 @@ function safeSecretMatch(provided, expected) {
 }
 
 const FRONTEND_DIR = __dirname;
+// Root project (tembak-paket-app). Dipakai untuk `git pull` source dari GitHub.
+const PROJECT_DIR = path.join(__dirname, '..');
 const ARTIFACT_FILE = path.join(FRONTEND_DIR, 'next.tar.gz');
 const ARTIFACT_TMP = path.join(FRONTEND_DIR, 'next.tar.gz.uploading');
 const MAX_ARTIFACT_BYTES = 500 * 1024 * 1024;
+// Nama proses PM2 yang harus di-restart setelah frontend di-swap.
+const PM2_FRONTEND_APP = 'rystore-frontend';
+const PM2_BACKEND_APP = 'rystore-backend';
 
 /**
  * Menerima artifact build (.next + public/version.json) dari GitHub Actions.
@@ -245,11 +254,219 @@ function handleArtifactUpload(req, res) {
 }
 
 /**
- * Extract artifact .next ke folder frontend lalu restart service PM2.
- * Menjawab dengan status sebenarnya (sukses/gagal) supaya GitHub Actions
- * tidak menandai deploy sukses saat extract atau restart ternyata gagal.
+ * Source sync dari GitHub (fast-forward only).
+ * PENTING: build TIDAK pernah jalan di STB. Yang disinkronkan hanya source;
+ * hasil build dikirim sebagai artifact terpisah oleh GitHub Actions.
+ *
+ * Working tree STB punya modifikasi lokal pada file data runtime
+ * (backend/data, backend/public). File seperti itu tidak boleh ditimpa
+ * oleh merge, jadi kalau merge gagal karena "local changes would be
+ * overwritten" kita hanya checkout paksa file KODE, lalu merge ulang.
  */
-function handleDeploy(req, res) {
+const PROTECTED_LOCAL_PATHS = [
+  'tembak-paket-app/backend/data',
+  'tembak-paket-app/backend/public',
+  // Metadata musik TikTok di STB diubah runtime, bukan dari git.
+  'tembak-paket-app/frontend-v2/public/audio',
+];
+
+function parseOverwrittenPaths(stderr) {
+  const lines = String(stderr || '').split('\n');
+  const headerIdx = lines.findIndex((l) => /would be overwritten by (merge|checkout)/i.test(l));
+  if (headerIdx === -1) return [];
+  const paths = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/^\t/.test(line)) break;
+    const p = line.replace(/^\t/, '').trim().replace(/^["']|["']$/g, '');
+    if (p) paths.push(p);
+  }
+  return paths;
+}
+
+function isProtectedLocalPath(p) {
+  const norm = String(p || '').replace(/\\/g, '/');
+  return PROTECTED_LOCAL_PATHS.some((pre) => norm === pre || norm.startsWith(pre + '/'));
+}
+
+/**
+ * Cari root repo git yang memuat folder frontend ini.
+ * Di STB repo di-clone sebagai /www/wwwroot/ry-itsolutions (satu level di atas
+ * tembak-paket-app), jadi `git rev-parse --show-toplevel` dipakai untuk
+ * menemukan lokasi yang benar, bukan asumsi path.
+ */
+function findGitRoot(startDir) {
+  try {
+    const out = execFileSync('git', ['-C', startDir, 'rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const root = String(out || '').trim();
+    return root || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function pullSource() {
+  const gitRoot = findGitRoot(PROJECT_DIR);
+  if (!gitRoot) {
+    return { ok: false, changed: false, error: 'Root git tidak ditemukan' };
+  }
+  const run = (args) => execFileAsync('git', ['-C', gitRoot, ...args], { maxBuffer: 8 * 1024 * 1024 });
+  try {
+    const head = (await run(['rev-parse', 'HEAD'])).stdout.trim();
+    await run(['fetch', 'origin', 'main']);
+    const target = (await run(['rev-parse', 'origin/main'])).stdout.trim();
+    if (head === target) return { ok: true, changed: false, head, target, git_root: gitRoot };
+
+    try {
+      await run(['merge', '--ff-only', 'origin/main']);
+      return { ok: true, changed: true, head: target, target, git_root: gitRoot };
+    } catch (err) {
+      const stderr = String(err.stderr || err.message || '');
+      const candidates = parseOverwrittenPaths(stderr).filter((p) => !isProtectedLocalPath(p));
+      if (!candidates.length) {
+        return { ok: false, changed: false, head, target, git_root: gitRoot, error: stderr.slice(0, 800) };
+      }
+      try {
+        await run(['checkout', '--', ...candidates]);
+        await run(['merge', '--ff-only', 'origin/main']);
+        return { ok: true, changed: true, head: target, target, git_root: gitRoot, overwritten: candidates };
+      } catch (err2) {
+        return {
+          ok: false,
+          changed: false,
+          head,
+          target,
+          git_root: gitRoot,
+          error: String(err2.stderr || err2.message || '').slice(0, 800),
+        };
+      }
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      changed: false,
+      git_root: gitRoot,
+      error: String(err.stderr || err.message || '').slice(0, 800),
+    };
+  }
+}
+
+/**
+ * Ekstrak artifact ke folder staging, verifikasi isinya, lalu tukar .next
+ * dengan rename (atomic per rename). Folder .next lama disimpan sebagai
+ * backup, file static lama disalin dulu supaya halaman yang masih terbuka
+ * di browser tidak 404 saat restart.
+ */
+async function swapArtifact() {
+  const ts = Date.now();
+  const stageDir = path.join(FRONTEND_DIR, `.deploy-stage-${ts}`);
+  fs.mkdirSync(stageDir, { recursive: true });
+  try {
+    await execFileAsync('tar', ['-xzf', ARTIFACT_FILE, '-C', stageDir]);
+
+    const stagedNext = path.join(stageDir, '.next');
+    const buildIdFile = path.join(stagedNext, 'BUILD_ID');
+    if (!fs.existsSync(buildIdFile)) throw new Error('Artifact tidak berisi .next/BUILD_ID');
+    for (const required of ['.next/server', '.next/static']) {
+      if (!fs.existsSync(path.join(stageDir, required))) {
+        throw new Error(`Artifact tidak berisi ${required}`);
+      }
+    }
+    const buildId = fs.readFileSync(buildIdFile, 'utf8').trim();
+
+    const currentNext = path.join(FRONTEND_DIR, '.next');
+    const backupDir = path.join(FRONTEND_DIR, `.next.backup-${ts}`);
+    if (fs.existsSync(currentNext)) fs.renameSync(currentNext, backupDir);
+    try {
+      fs.renameSync(stagedNext, currentNext);
+    } catch (e) {
+      // Gagal swap -> kembalikan .next lama supaya situs tetap hidup.
+      if (fs.existsSync(backupDir) && !fs.existsSync(currentNext)) {
+        try { fs.renameSync(backupDir, currentNext); } catch {}
+      }
+      throw e;
+    }
+
+    // Asset static lama (chunk lama) disalin ke .next/static supaya halaman
+    // yang belum di-refresh tidak kehilangan file JS/CSS.
+    const backupStatic = path.join(backupDir, 'static');
+    const liveStatic = path.join(currentNext, 'static');
+    if (fs.existsSync(backupStatic) && fs.existsSync(liveStatic)) {
+      try {
+        await execFileAsync('cp', ['-rn', backupStatic + '/.', liveStatic]);
+      } catch (e) {
+        console.error('[SELF_DEPLOY] Gagal menyalin static lama:', e.message);
+      }
+    }
+
+    let version = null;
+    const stagedVersion = path.join(stageDir, 'public', 'version.json');
+    if (fs.existsSync(stagedVersion)) {
+      const raw = fs.readFileSync(stagedVersion, 'utf8');
+      try { version = JSON.parse(raw); } catch { version = null; }
+      fs.mkdirSync(path.join(FRONTEND_DIR, 'public'), { recursive: true });
+      fs.writeFileSync(path.join(FRONTEND_DIR, 'public', 'version.json'), raw);
+    }
+
+    return { buildId, version, backupDir };
+  } finally {
+    try { fs.rmSync(stageDir, { recursive: true, force: true }); } catch {}
+  }
+}
+/**
+ * Restart PM2 dari proses yang TERPISAH dari proses frontend ini.
+ * Kalau pm2 restart dijalankan di proses yang sama, proses frontend yang
+ * owe response HTTP ikut mati -> CI/CD selalu lihat 502 walau deploy sukses.
+ * setsid + nohup membuat script benar-benar lepas dari process tree node ini,
+ * sehingga tidak ikut dibunuh oleh pm2 (treekill).
+ */
+function scheduleRestart(buildId, backupDir) {
+  const scriptPath = path.join(FRONTEND_DIR, `.deploy-restart-${Date.now()}.sh`);
+  const logPath = '/var/log/ry-store-deploy.log';
+  const script = [
+    '#!/bin/bash',
+    '{',
+    `  echo "[$(date -Is)] deploy restart mulai build=${buildId}"`,
+    '  sleep 2',
+    `  PM2_HOME=/root/.pm2 /usr/bin/pm2 restart ${PM2_FRONTEND_APP}`,
+    '  sleep 3',
+    `  PM2_HOME=/root/.pm2 /usr/bin/pm2 restart ${PM2_BACKEND_APP}`,
+    `  echo "[$(date -Is)] deploy restart selesai"`,
+    `  [ -n "${backupDir}" ] && rm -rf "${backupDir}"`,
+    // Artifact yang sudah dipakai dibuang, supaya deploy lama tidak bisa
+    // di-apply lagi lewat pemanggilan /_deploy berikutnya.
+    `  rm -f "${ARTIFACT_FILE}"`,
+    `  rm -f "${scriptPath}"`,
+    `} >> "${logPath}" 2>&1`,
+    '',
+  ].join('\n');
+  try {
+    fs.writeFileSync(scriptPath, script, { mode: 0o700 });
+    const child = spawn('setsid', ['bash', scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    console.log(`[SELF_DEPLOY] Restart dijadwalkan (script: ${scriptPath})`);
+  } catch (e) {
+    console.error('[SELF_DEPLOY] Gagal menjadwalkan restart:', e.message);
+  }
+}
+
+let deployInProgress = false;
+
+/**
+ * Apply artifact build ke frontend lalu restart service PM2.
+ * Urutan penting:
+ *   1. sync source dari GitHub (fast-forward, tanpa build di STB)
+ *   2. extract artifact ke staging, verifikasi, tukar .next
+ *   3. KIRIM response 200 (lengkap dengan BUILD_ID baru)
+ *   4. baru sesudah itu restart PM2 di proses terpisah
+ */
+async function handleDeploy(req, res) {
   const parsed = parse(req.url, true);
   const providedSecret = parsed.query.secret || req.headers['x-webhook-secret'];
   if (!DEPLOY_SECRET) {
@@ -269,24 +486,53 @@ function handleDeploy(req, res) {
     return res.end(JSON.stringify({ status: false, message: 'Belum ada artifact build. Kirim artifact ke /_deploy-artifact lebih dulu.' }));
   }
 
-  const { exec } = require('child_process');
-  console.log(`[SELF_DEPLOY] Extract + restart dari ${ARTIFACT_FILE}`);
+  if (deployInProgress) {
+    res.statusCode = 409;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ status: false, message: 'Deploy sedang berjalan.' }));
+  }
 
-  const deployCmd = `tar -xzf "${ARTIFACT_FILE}" -C "${FRONTEND_DIR}" && rm -f "${ARTIFACT_FILE}" && pm2 restart rystore-frontend && pm2 restart rystore-backend`;
+  deployInProgress = true;
+  try {
+    console.log(`[SELF_DEPLOY] Sync source + apply artifact dari ${ARTIFACT_FILE}`);
 
-  exec(deployCmd, { cwd: FRONTEND_DIR, shell: true, maxBuffer: 1024 * 1024 * 8 }, (err, stdout, stderr) => {
-    if (err) {
-      console.error(`[SELF_DEPLOY] FAILED: ${err.message}`);
-      if (stderr) console.error(`[SELF_DEPLOY] stderr:\n${stderr}`);
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ status: false, message: err.message, stderr: String(stderr || '').slice(0, 2000) }));
+    let source = { ok: false, error: 'tidak dijalankan' };
+    try {
+      source = await pullSource();
+      console.log(`[SELF_DEPLOY] Source sync: ${JSON.stringify(source).slice(0, 500)}`);
+    } catch (e) {
+      source = { ok: false, error: e.message };
+      console.error('[SELF_DEPLOY] Source sync gagal:', e.message);
     }
-    console.log(`[SELF_DEPLOY] Success. Output:\n${stdout}`);
+
+    const swap = await swapArtifact();
+    console.log(`[SELF_DEPLOY] .next di-swap, BUILD_ID=${swap.buildId}`);
+
+    const payload = {
+      status: true,
+      message: 'Deploy selesai',
+      build_id: swap.buildId,
+      version: swap.version,
+      source,
+    };
+
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ status: true, message: 'Deploy selesai', output: String(stdout || '').slice(0, 2000) }));
-  });
+    // Tutup koneksi setelah body terkirim: proses akan di-restart sebentar
+    // lagi, dan kurva CI tidak boleh menggantung di connection keep-alive.
+    res.setHeader('Connection', 'close');
+    // Response dikirim DAN di-flush dulu, restart menyusul setelahnya.
+    res.end(JSON.stringify(payload), () => {
+      scheduleRestart(swap.buildId, swap.backupDir);
+    });
+  } catch (err) {
+    console.error(`[SELF_DEPLOY] FAILED: ${err.message}`);
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ status: false, message: err.message }));
+  } finally {
+    deployInProgress = false;
+  }
 }
 
 app.prepare().then(() => {

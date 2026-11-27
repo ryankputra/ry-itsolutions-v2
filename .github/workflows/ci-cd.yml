@@ -12,6 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: tembak-paket-app/frontend-v2
@@ -34,8 +35,31 @@ jobs:
           NEXT_TELEMETRY_DISABLED: '1'
         run: npm run build
 
-      - name: Package build (.next + public)
-        run: tar -czf "$GITHUB_WORKSPACE/frontend-next.tgz" .next public/version.json
+      - name: Package build (.next + version.json)
+        # .next/cache = cache webpack (~93% dari artifact, 330MB dari 354MB) dan
+        # TIDAK dipakai saat runtime: proyek ini tidak memakai ISR /
+        # unstable_cache / export const revalidate. .next/cache dikecualikan supaya
+        # payload upload ke STB kecil (51MB -> ~3MB) dan upload tidak putus.
+        #
+        # public/ TIDAK ikut dipaketkan. Di STB ada 170MB+ aset milik user di
+        # public/ (download/, audio/, banner/, apk/) yang tidak boleh ditimpa.
+        # Yang dikirim hanya public/version.json supaya UpdateNotifier di
+        # frontend mendeteksi versi baru dan memunculkan banner update.
+        run: |
+          set -euo pipefail
+          test -f public/version.json || { echo "::error::public/version.json tidak ada, build script gagal?"; exit 1; }
+          test -f .next/BUILD_ID || { echo "::error::.next/BUILD_ID tidak ada, ini bukan server build?"; exit 1; }
+          test -d .next/server || { echo "::error::.next/server tidak ada"; exit 1; }
+          test -d .next/static || { echo "::error::.next/static tidak ada"; exit 1; }
+          tar -czf "$GITHUB_WORKSPACE/frontend-next.tgz" \
+            --exclude='.next/cache' \
+            --exclude='.next/trace' \
+            .next public/version.json
+          echo "Artifact size:"
+          ls -lh "$GITHUB_WORKSPACE/frontend-next.tgz"
+          echo "Isi artifact:"
+          tar -tzf "$GITHUB_WORKSPACE/frontend-next.tgz" | head -20
+          echo "Total member: $(tar -tzf "$GITHUB_WORKSPACE/frontend-next.tgz" | wc -l)"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -47,26 +71,90 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: frontend-next
 
+      - name: Read expected build metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          TARBALL="$GITHUB_WORKSPACE/frontend-next.tgz"
+          BUILD_ID="$(tar -xzOf "$TARBALL" .next/BUILD_ID | tr -d '\r\n')"
+          VERSION_RAW="$(tar -xzOf "$TARBALL" public/version.json)"
+          VERSION_TS="$(printf '%s' "$VERSION_RAW" | python3 -c 'import json,sys; print(json.load(sys.stdin)["timestamp"])')"
+          echo "build_id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+          echo "version_ts=${VERSION_TS}" >> "$GITHUB_OUTPUT"
+          echo "Expected BUILD_ID=${BUILD_ID} version.json timestamp=${VERSION_TS}"
+
       - name: Upload Artifact to STB
         env:
           DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
         run: |
-          echo "Uploading frontend-next.tgz to STB..."
-          curl -fsS -X POST \
+          set -euo pipefail
+          TARBALL="$GITHUB_WORKSPACE/frontend-next.tgz"
+          echo "Uploading $(basename "$TARBALL") ($(stat -c%s "$TARBALL") bytes) ke STB..."
+          # Secret dikirim lewat header x-webhook-secret, bukan query string,
+          # supaya tidak bocor ke access log server.
+          # --http1.1 dipakai karena HTTP/2 dari runner pernah MATI di tengah
+          # body besar (PROTOCOL_ERROR -> upload aborted di sisi STB).
+          RESP="$(curl -fsS --http1.1 --fail-with-body \
+            --connect-timeout 20 --max-time 300 \
+            --retry 3 --retry-all-errors --retry-delay 5 --retry-max-time 300 \
+            -X POST \
             -H "Content-Type: application/gzip" \
-            --data-binary "@frontend-next.tgz" \
-            "https://ry-itsolutionts.web.id/_deploy-artifact?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
+            -H "x-webhook-secret: ${DEPLOY_SECRET}" \
+            --data-binary "@${TARBALL}" \
+            "https://ry-itsolutionts.web.id/_deploy-artifact")"
+          echo "Upload response: ${RESP}"
+          echo "${RESP}" | grep -q '"status":true' || { echo "::error::Upload artifact ditolak server"; exit 1; }
 
       - name: Trigger STB Deploy & Restart
         env:
           DEPLOY_SECRET: ${{ secrets.AUTO_DEPLOY_SECRET }}
+          EXPECT_BUILD_ID: ${{ steps.meta.outputs.build_id }}
         run: |
-          echo "Triggering STB extract & restart..."
-          curl -fsS -X GET \
-            "https://ry-itsolutionts.web.id/_deploy?secret=${{ secrets.AUTO_DEPLOY_SECRET }}"
+          set -euo pipefail
+          echo "Triggering STB extract & swap .next + restart PM2..."
+          RESP="$(curl -fsS --http1.1 --fail-with-body \
+            --connect-timeout 20 --max-time 120 \
+            --retry 3 --retry-all-errors --retry-delay 5 --retry-max-time 180 \
+            -H "x-webhook-secret: ${DEPLOY_SECRET}" \
+            "https://ry-itsolutionts.web.id/_deploy")"
+          echo "Deploy response: ${RESP}"
+          echo "${RESP}" | grep -q '"status":true' || { echo "::error::Deploy tidak laporan sukses"; exit 1; }
+          echo "${RESP}" | grep -q "${EXPECT_BUILD_ID}" \
+            || { echo "::error::BUILD_ID di server ($RESP) tidak sama dengan yang dibangun (${EXPECT_BUILD_ID})"; exit 1; }
+
+      - name: Verify live site serves the new build
+        env:
+          EXPECT_BUILD_ID: ${{ steps.meta.outputs.build_id }}
+          EXPECT_VERSION_TS: ${{ steps.meta.outputs.version_ts }}
+        run: |
+          set -euo pipefail
+          echo "Menunggu frontend STB comeback setelah PM2 restart..."
+          UP=0
+          for i in $(seq 1 40); do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' --http1.1 --max-time 15 https://ry-itsolutionts.web.id/ || true)"
+            if [ "$CODE" = "200" ]; then
+              echo "Frontend comeback (HTTP ${CODE}) setelah ${i}x cek."
+              UP=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$UP" = "1" ] || { echo "::error::Frontend tidak comeback dalam 200 detik"; exit 1; }
+
+          LIVE_VERSION="$(curl -fsS --http1.1 --max-time 20 "https://ry-itsolutionts.web.id/version.json?t=$(date +%s)")"
+          echo "Live version.json: ${LIVE_VERSION}"
+          echo "${LIVE_VERSION}" | grep -q "${EXPECT_VERSION_TS}" \
+            || { echo "::error::Versi live tidak sama dengan build yang di-deploy"; exit 1; }
+
+          LIVE_HTML="$(curl -fsS --http1.1 --max-time 30 https://ry-itsolutionts.web.id/)"
+          echo "${LIVE_HTML}" | grep -q "${EXPECT_BUILD_ID}" \
+            || { echo "::error::HTML live tidak mengandung BUILD_ID ${EXPECT_BUILD_ID}"; exit 1; }
+
+          echo "OK: live site sudah memakai build baru."
