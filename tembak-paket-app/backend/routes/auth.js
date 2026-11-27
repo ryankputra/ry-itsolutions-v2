@@ -154,7 +154,7 @@ router.post('/auth/google', async (req, res) => {
             const defaultPassword = await bcrypt.hash(crypto.randomBytes(8).toString('hex'), 10);
             const newId = `user_${Date.now()}`;
             const cleanName = (name || 'USER').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5) || 'RYY';
-            const generatedRefCode = `${cleanName}${Math.floor(1000 + Math.random() * 9000)}`;
+            const generatedRefCode = `${cleanName}${crypto.randomInt(1000, 10000)}`;
 
             let referredById = null;
             let referrerName = null;
@@ -200,7 +200,12 @@ router.post('/auth/google', async (req, res) => {
             return res.status(403).json({ status: false, message: 'Akun Anda diblokir.' });
         }
 
-        req.session = req.session || {};
+        // Session fixation prevention: regenerate session on successful login
+        await new Promise((resolve, reject) => {
+            req.session.regenerate((err) => {
+                if (err) reject(err); else resolve();
+            });
+        });
         req.session.userId = user.id;
 
         try { logUserActivity({ userId: user.id, userName: user.name, userEmail: user.email, action: 'LOGIN', description: 'Login berhasil via Akun Google', req }); } catch (e) {}
@@ -258,7 +263,7 @@ router.post('/auth/register-request-otp', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otp = crypto.randomInt(100000, 1000000).toString();
         const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
         const payload = JSON.stringify({
             name,
@@ -325,7 +330,7 @@ router.post('/auth/register-verify-otp', async (req, res) => {
         }
 
         const cleanName = (data.name || 'USER').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5) || 'RYY';
-        const generatedRefCode = `${cleanName}${Math.floor(1000 + Math.random() * 9000)}`;
+        const generatedRefCode = `${cleanName}${crypto.randomInt(1000, 10000)}`;
         const newUserId = `user_${Date.now()}`;
 
         const newUser = {
@@ -350,6 +355,12 @@ router.post('/auth/register-verify-otp', async (req, res) => {
 
         await dbRun('DELETE FROM email_verifications WHERE email = ? AND type = ?', [validEmail, 'register']);
 
+        // Session fixation prevention: regenerate session on successful registration
+        await new Promise((resolve, reject) => {
+            req.session.regenerate((err) => {
+                if (err) reject(err); else resolve();
+            });
+        });
         req.session.userId = newUserId;
         logUserActivity({ userId: newUserId, userName: data.name, userEmail: validEmail, action: 'REGISTER', description: 'Pendaftaran akun baru berhasil', req });
         updatePresence({ id: newUserId, name: data.name, email: validEmail, role: 'user' }, req, '/');
@@ -419,7 +430,7 @@ router.post('/auth/register', async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const cleanName = (name || 'USER').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 5) || 'RYY';
-        const generatedRefCode = `${cleanName}${Math.floor(1000 + Math.random() * 9000)}`;
+        const generatedRefCode = `${cleanName}${crypto.randomInt(1000, 10000)}`;
 
         let referredById = null;
         let referrerName = null;
@@ -503,7 +514,12 @@ router.post('/auth/login', async (req, res) => {
         if (!isPasswordMatch) return res.status(401).json({ status: false, message: "Email atau password salah." });
         if (user.role !== 'admin' && user.status !== 'approved') return res.status(403).json({ status: false, message: "Akun Anda belum disetujui oleh Admin." });
 
-        req.session = req.session || {};
+        // Session fixation prevention: regenerate session on successful login
+        await new Promise((resolve, reject) => {
+            req.session.regenerate((err) => {
+                if (err) reject(err); else resolve();
+            });
+        });
         req.session.userId = user.id;
 
         try { logUserActivity({ userId: user.id, userName: user.name, userEmail: user.email, action: 'LOGIN', description: 'Login berhasil via Email/Password', req }); } catch (e) {}
@@ -537,7 +553,7 @@ router.post('/auth/forgot-password-request', async (req, res) => {
             return res.status(404).json({ status: false, message: "Alamat email tidak ditemukan dalam sistem kami." });
         }
 
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otp = crypto.randomInt(100000, 1000000).toString();
         const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
 
         await dbRun(
@@ -833,7 +849,7 @@ router.post('/user/request-email-otp', isAuthenticated, async (req, res) => {
             return res.status(400).json({ status: false, message: "Alamat email baru tidak boleh sama dengan email saat ini." });
         }
 
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otp = crypto.randomInt(100000, 1000000).toString();
         const expiresAt = Date.now() + 5 * 60 * 1000; // 5 menit
 
         await dbRun(

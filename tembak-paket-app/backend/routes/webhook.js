@@ -3,8 +3,38 @@ const router = express.Router();
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
-const WEBHOOK_SECRET = process.env.AUTO_DEPLOY_SECRET || 'RyITSolutionsAutoDeploy2026';
+// WEBHOOK_SECRET wajib via env (no hardcoded fallback)
+const WEBHOOK_SECRET = process.env.AUTO_DEPLOY_SECRET;
+if (!WEBHOOK_SECRET) {
+    console.error('[WEBHOOK] CRITICAL: AUTO_DEPLOY_SECRET env var tidak diset. Webhook deploy dinonaktifkan.');
+}
+
+// In-memory store untuk replay protection (max 1000 delivery IDs)
+const processedDeliveries = new Set();
+const MAX_DELIVERIES = 1000;
+
+function recordDelivery(deliveryId) {
+    if (processedDeliveries.size >= MAX_DELIVERIES) {
+        const first = processedDeliveries.values().next().value;
+        processedDeliveries.delete(first);
+    }
+    processedDeliveries.add(deliveryId);
+}
+
+function isDuplicateDelivery(deliveryId) {
+    return processedDeliveries.has(deliveryId);
+}
+
+// Perbandingan secret timing-safe untuk mencegah timing attack
+function safeSecretMatch(provided, expected) {
+    if (typeof provided !== 'string' || !expected) return false;
+    const a = Buffer.from(provided, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+}
 
 function findRepoRoot() {
     const candidates = [
@@ -25,22 +55,69 @@ function findRepoRoot() {
 /**
  * POST /api/webhook/deploy
  * Public webhook endpoint for automated GitHub CI/CD deployments.
- * Authentication is enforced via secret query param: ?secret=RyITSolutionsAutoDeploy2026
+ * Authentication: HMAC SHA256 via X-Hub-Signature-256 header + replay protection via X-GitHub-Delivery
  */
 router.post(['/deploy', '/webhook/deploy'], (req, res) => {
-    const providedSecret = req.query.secret || req.body?.secret || req.headers['x-webhook-secret'];
-
-    if (!providedSecret || providedSecret !== WEBHOOK_SECRET) {
-        return res.status(403).json({
+    // 1. Check WEBHOOK_SECRET is configured
+    if (!WEBHOOK_SECRET) {
+        return res.status(503).json({
             success: false,
             status: false,
-            message: 'Forbidden: Secret token tidak valid atau tidak disertakan.'
+            message: 'Webhook secret not configured on server.'
         });
     }
 
+    // 2. Replay protection: check X-GitHub-Delivery header
+    const deliveryId = req.headers['x-github-delivery'];
+    if (!deliveryId) {
+        return res.status(400).json({
+            success: false,
+            status: false,
+            message: 'Missing X-GitHub-Delivery header (replay protection required).'
+        });
+    }
+    if (isDuplicateDelivery(deliveryId)) {
+        console.warn(`[WEBHOOK_DEPLOY] Duplicate delivery rejected: ${deliveryId}`);
+        return res.status(409).json({
+            success: false,
+            status: false,
+            message: 'Duplicate delivery rejected (replay protection).'
+        });
+    }
+
+    // 3. HMAC SHA256 verification (X-Hub-Signature-256)
+    const signature = req.headers['x-hub-signature-256'];
+    if (!signature || !signature.startsWith('sha256=')) {
+        return res.status(401).json({
+            success: false,
+            status: false,
+            message: 'Missing or invalid X-Hub-Signature-256 header.'
+        });
+    }
+    const receivedSig = signature.slice(7);
+    // Gunakan raw body asli dari GitHub; JSON.stringify(req.body) bisa berbeda urutan key/spasi
+    const payload = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}));
+    const expectedSig = crypto.createHmac('sha256', WEBHOOK_SECRET).update(payload).digest('hex');
+
+    // Timing-safe comparison (panjang buffer harus sama, jika tidak langsung tolak)
+    const receivedBuf = Buffer.from(receivedSig, 'utf8');
+    const expectedBuf = Buffer.from(expectedSig, 'utf8');
+    if (receivedBuf.length !== expectedBuf.length ||
+        !crypto.timingSafeEqual(receivedBuf, expectedBuf)) {
+        console.warn(`[WEBHOOK_DEPLOY] Invalid HMAC signature for delivery: ${deliveryId}`);
+        return res.status(401).json({
+            success: false,
+            status: false,
+            message: 'Invalid HMAC signature.'
+        });
+    }
+
+    // 4. Record delivery ID for replay protection
+    recordDelivery(deliveryId);
+
     const repoRoot = findRepoRoot();
 
-    // 1. Immediately return HTTP 200 JSON so GitHub webhook does not time out
+    // 5. Immediately return HTTP 200 JSON so GitHub webhook does not time out
     res.status(200).json({
         success: true,
         status: true,
@@ -49,10 +126,11 @@ router.post(['/deploy', '/webhook/deploy'], (req, res) => {
         timestamp: new Date().toISOString()
     });
 
-    // 2. Asynchronously execute git fetch, git reset, and pm2 restart
+    // 6. Asynchronously execute git fetch, git reset, and pm2 restart
     setImmediate(() => {
         console.log(`\n==================================================`);
         console.log(`[WEBHOOK_DEPLOY] Auto deploy triggered by GitHub Webhook.`);
+        console.log(`[WEBHOOK_DEPLOY] Delivery ID: ${deliveryId}`);
         console.log(`[WEBHOOK_DEPLOY] Working Directory: ${repoRoot}`);
         console.log(`==================================================`);
 
@@ -73,10 +151,17 @@ router.post(['/deploy', '/webhook/deploy'], (req, res) => {
 /**
  * GET /api/webhook/deploy
  * Health check / ping test endpoint for GitHub Webhook verification
+ * Uses secret query param for manual verification (not HMAC - GET has no body)
  */
 router.get(['/deploy', '/webhook/deploy'], (req, res) => {
+    if (!WEBHOOK_SECRET) {
+        return res.status(503).json({
+            success: false,
+            message: 'Webhook secret not configured on server.'
+        });
+    }
     const providedSecret = req.query.secret || req.headers['x-webhook-secret'];
-    if (!providedSecret || providedSecret !== WEBHOOK_SECRET) {
+    if (!safeSecretMatch(providedSecret, WEBHOOK_SECRET)) {
         return res.status(403).json({
             success: false,
             message: 'Forbidden: Akses ditolak.'
@@ -96,7 +181,7 @@ router.get(['/deploy', '/webhook/deploy'], (req, res) => {
  */
 router.all(["/test-admin-wa", "/webhook/test-admin-wa"], async (req, res) => {
     const providedSecret = req.query.secret || req.body?.secret || req.headers["x-webhook-secret"];
-    if (!providedSecret || providedSecret !== WEBHOOK_SECRET) {
+    if (!safeSecretMatch(providedSecret, WEBHOOK_SECRET)) {
         return res.status(403).json({ success: false, message: "Forbidden: Invalid secret." });
     }
 

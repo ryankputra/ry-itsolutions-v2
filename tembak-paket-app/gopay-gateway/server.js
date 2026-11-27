@@ -3,6 +3,7 @@ const axios = require('axios');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { exec } = require('child_process');
 require('dotenv').config();
 const sessionManager = require('./sessionManager');
@@ -1140,12 +1141,53 @@ app.get('/api/logs', apiKeyAuth, (req, res) => {
     res.json({ success: true, logs: activityLogs });
 });
 
+// Secret untuk endpoint auto deploy.
+// Urutan sumber: env -> file .deploy-secret -> kosong (fail-closed).
+// Tidak ada fallback hardcoded: nilai lama pernah bocor ke repo publik.
+const DEPLOY_SECRET_FILE = path.join(__dirname, '..', '.deploy-secret');
+const DEPLOY_SECRET_FILE_ALT = path.join('/www/wwwroot/ry-itsolutions/tembak-paket-app', '.deploy-secret');
+
+function readSecretFile(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) return '';
+        return fs.readFileSync(filePath, 'utf8').trim();
+    } catch (e) {
+        console.error(`[WEBHOOK_DEPLOY_3002] Gagal baca secret file ${filePath}: ${e.message}`);
+        return '';
+    }
+}
+
+function resolveDeploySecret() {
+    const fromEnv = (process.env.AUTO_DEPLOY_SECRET || '').trim();
+    if (fromEnv) return fromEnv;
+    return readSecretFile(DEPLOY_SECRET_FILE) || readSecretFile(DEPLOY_SECRET_FILE_ALT);
+}
+
+function safeSecretMatch(provided, expected) {
+    if (typeof provided !== 'string' || !expected) return false;
+    const a = Buffer.from(provided, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length) return false;
+    try {
+        return crypto.timingSafeEqual(a, b);
+    } catch (e) {
+        return false;
+    }
+}
+
 // GitHub Webhook Auto Deploy Endpoint on port 3002
 app.post(['/api/webhook/deploy', '/webhook/deploy', '/api/deploy'], (req, res) => {
     const providedSecret = req.query.secret || req.body?.secret || req.headers['x-webhook-secret'];
-    const expectedSecret = process.env.AUTO_DEPLOY_SECRET || 'RyITSolutionsAutoDeploy2026';
+    const expectedSecret = resolveDeploySecret();
 
-    if (!providedSecret || providedSecret !== expectedSecret) {
+    if (!expectedSecret) {
+        return res.status(503).json({
+            success: false,
+            message: 'Deploy secret not configured on server.'
+        });
+    }
+
+    if (!safeSecretMatch(providedSecret, expectedSecret)) {
         return res.status(403).json({
             success: false,
             message: 'Forbidden: Secret token tidak valid atau tidak disertakan.'
@@ -1189,9 +1231,12 @@ app.post(['/api/webhook/deploy', '/webhook/deploy', '/api/deploy'], (req, res) =
 
 app.get(['/api/webhook/deploy', '/webhook/deploy'], (req, res) => {
     const providedSecret = req.query.secret || req.headers['x-webhook-secret'];
-    const expectedSecret = process.env.AUTO_DEPLOY_SECRET || 'RyITSolutionsAutoDeploy2026';
-    if (!providedSecret || providedSecret !== expectedSecret) {
-        return res.status(403).json({ success: false, message: 'Forbidden: Gunakan parameter ?secret=' + expectedSecret });
+    const expectedSecret = resolveDeploySecret();
+    if (!expectedSecret) {
+        return res.status(503).json({ success: false, message: 'Deploy secret not configured on server.' });
+    }
+    if (!safeSecretMatch(providedSecret, expectedSecret)) {
+        return res.status(403).json({ success: false, message: 'Forbidden: Secret token tidak valid atau tidak disertakan.' });
     }
     res.json({
         success: true,

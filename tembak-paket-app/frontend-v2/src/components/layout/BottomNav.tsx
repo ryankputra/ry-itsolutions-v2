@@ -2,9 +2,15 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSlotRegistration, useBottomOffset } from "@/lib/bottomBarStack";
 
 export function BottomNav() {
   const pathname = usePathname();
+  const navHeight = 56; // px - fixed height of the nav bar
+
+  // Register this slot with the stack
+  useSlotRegistration("nav", navHeight, true);
+  const bottomOffset = useBottomOffset("nav");
 
   const navItems = [
     {
@@ -62,7 +68,8 @@ export function BottomNav() {
   ];
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/80 dark:bg-[#161617]/80 backdrop-blur-2xl border-t border-black/[0.06] dark:border-white/[0.08] px-2 py-1 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] safe-area-pb select-none">
+    <nav className="lg:hidden fixed left-0 right-0 z-50 bg-white/80 dark:bg-[#161617]/80 backdrop-blur-2xl border-t border-black/[0.06] dark:border-white/[0.08] px-2 py-1 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] safe-area-pb select-none bottom-bar-slide"
+      style={{ bottom: bottomOffset }}>
       <div className="flex items-center justify-around">
         {navItems.map((item, idx) => {
           const isActive = pathname === item.href || (item.href === "/saya" && pathname === "/profile");

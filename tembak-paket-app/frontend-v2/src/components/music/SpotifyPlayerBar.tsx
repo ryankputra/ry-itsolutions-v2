@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -22,10 +22,17 @@ import {
 } from "lucide-react";
 import { useMusic } from "@/lib/musicContext";
 import { useApp } from "@/lib/store";
+import { useSlotRegistration, useBottomOffset } from "@/lib/bottomBarStack";
 
 export function SpotifyPlayerBar() {
   const pathname = usePathname();
   const { user } = useApp();
+  const playerHeight = 80; // px - full expanded player height (max)
+  const minimizedHeight = 48; // px - minimized pill height
+
+  // Register this slot with the stack
+  useSlotRegistration("player", playerHeight, true);
+  const bottomOffset = useBottomOffset("player");
   const isHiburanPage = pathname === "/hiburan" || pathname.startsWith("/hiburan/");
   const isAiPage = pathname === "/ai";
 
@@ -85,7 +92,8 @@ export function SpotifyPlayerBar() {
   // Minimized Compact Pill Mode
   if (isMinimized) {
     return (
-      <div className="fixed bottom-[calc(65px+env(safe-area-inset-bottom,0px))] lg:bottom-4 right-4 z-40 animate-in fade-in slide-in-from-bottom-2 duration-200">
+      <div className="fixed right-4 z-40 animate-in fade-in slide-in-from-bottom-2 duration-200 bottom-bar-slide bottom-bar-minimized"
+        style={{ bottom: bottomOffset }}>
         <div className="bg-parchment/95 dark:bg-[#121212]/95 border border-hairline dark:border-white/10 backdrop-blur-xl rounded-full pl-2 pr-4 py-1.5 shadow-2xl flex items-center gap-3 text-ink dark:text-white">
           <button
             onClick={toggleMinimize}
@@ -143,7 +151,8 @@ export function SpotifyPlayerBar() {
 
       {/* Main Spotify-style Player Bar */}
       <footer
-        className="fixed bottom-[calc(56px+env(safe-area-inset-bottom,0px))] lg:bottom-0 left-0 right-0 z-40 bg-parchment/95 dark:bg-[#121212]/95 border-t border-hairline dark:border-white/10 backdrop-blur-2xl text-ink dark:text-white select-none transition-all duration-200 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_-8px_30px_rgba(0,0,0,0.5)]"
+        className="fixed left-0 right-0 z-40 bg-parchment/95 dark:bg-[#121212]/95 border-t border-hairline dark:border-white/10 backdrop-blur-2xl text-ink dark:text-white select-none transition-all duration-200 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_-8px_30px_rgba(0,0,0,0.5)] bottom-bar-slide lg:bottom-0"
+        style={{ bottom: bottomOffset }}
         aria-label="RyTone Music Player"
       >
         {/* Mobile thin top progress indicator */}

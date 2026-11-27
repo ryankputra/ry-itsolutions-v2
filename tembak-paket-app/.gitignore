@@ -1,13 +1,16 @@
-node_modules/  
-database/  
-*.db  
-*.log  
-.env  
-.env.*  
-dist/  
-build/  
-.output/ 
-.next/cache/
+node_modules/
+database/
+*.db
+*.log
+.env
+.env.*
+dist/
+build/
+.output/
+.next/
+
+# Deploy secret
+.deploy-secret
 
 # WhatsApp auth sessions
 sessions/

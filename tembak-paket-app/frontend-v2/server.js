@@ -2,6 +2,7 @@ const { createServer } = require('http');
 const { parse } = require('url');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const next = require('next');
 
 const dev = false;
@@ -110,7 +111,52 @@ function serveDownload(req, res, pathname) {
   });
 }
 
-const DEPLOY_SECRET = process.env.AUTO_DEPLOY_SECRET || 'RyITSolutionsAutoDeploy2026';
+/**
+ * Secret untuk endpoint self-deploy.
+ * Urutan sumber:
+ *   1. process.env.AUTO_DEPLOY_SECRET (kalau service memang disuntik env)
+ *   2. file .deploy-secret di root project (konvensi STB, dibaca runtime)
+ *   3. kalau dua-duanya kosong -> fail-closed, endpoint deploy dimatikan
+ * Tidak ada fallback hardcoded: nilai lama pernah bocor ke repo publik.
+ */
+const DEPLOY_SECRET_FILE = path.join(__dirname, '..', '.deploy-secret');
+const DEPLOY_SECRET_FILE_ALT = path.join('/www/wwwroot/ry-itsolutions/tembak-paket-app', '.deploy-secret');
+
+function readSecretFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return '';
+    return fs.readFileSync(filePath, 'utf8').trim();
+  } catch (e) {
+    console.error(`[SELF_DEPLOY] Gagal baca secret file ${filePath}: ${e.message}`);
+    return '';
+  }
+}
+
+function resolveDeploySecret() {
+  const fromEnv = (process.env.AUTO_DEPLOY_SECRET || '').trim();
+  if (fromEnv) return fromEnv;
+  const fromFile = readSecretFile(DEPLOY_SECRET_FILE) || readSecretFile(DEPLOY_SECRET_FILE_ALT);
+  if (fromFile) return fromFile;
+  return '';
+}
+
+const DEPLOY_SECRET = resolveDeploySecret();
+if (!DEPLOY_SECRET) {
+  console.error('[SELF_DEPLOY] CRITICAL: AUTO_DEPLOY_SECRET tidak ditemukan (env maupun file .deploy-secret). Endpoint /_deploy dan /_deploy-artifact dinonaktifkan.');
+}
+
+/** Perbandingan secret timing-safe agar tidak bocor lewat timing attack. */
+function safeSecretMatch(provided, expected) {
+  if (typeof provided !== 'string' || !expected) return false;
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch (e) {
+    return false;
+  }
+}
 
 const FRONTEND_DIR = __dirname;
 const ARTIFACT_FILE = path.join(FRONTEND_DIR, 'next.tar.gz');
@@ -125,7 +171,12 @@ const MAX_ARTIFACT_BYTES = 500 * 1024 * 1024;
 function handleArtifactUpload(req, res) {
   const parsed = parse(req.url, true);
   const providedSecret = parsed.query.secret || req.headers['x-webhook-secret'];
-  if (!providedSecret || providedSecret !== DEPLOY_SECRET) {
+  if (!DEPLOY_SECRET) {
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ status: false, message: 'Deploy secret not configured on server.' }));
+  }
+  if (!safeSecretMatch(providedSecret, DEPLOY_SECRET)) {
     res.statusCode = 403;
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ status: false, message: 'Forbidden' }));
@@ -201,7 +252,12 @@ function handleArtifactUpload(req, res) {
 function handleDeploy(req, res) {
   const parsed = parse(req.url, true);
   const providedSecret = parsed.query.secret || req.headers['x-webhook-secret'];
-  if (!providedSecret || providedSecret !== DEPLOY_SECRET) {
+  if (!DEPLOY_SECRET) {
+    res.statusCode = 503;
+    res.setHeader('Content-Type', 'application/json');
+    return res.end(JSON.stringify({ status: false, message: 'Deploy secret not configured on server.' }));
+  }
+  if (!safeSecretMatch(providedSecret, DEPLOY_SECRET)) {
     res.statusCode = 403;
     res.setHeader('Content-Type', 'application/json');
     return res.end(JSON.stringify({ status: false, message: 'Forbidden' }));

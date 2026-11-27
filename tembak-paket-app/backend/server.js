@@ -120,8 +120,9 @@ app.use(cors({
     exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 app.options('*', cors());
-app.use(express.json({ limit: '15mb' }));
-app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+// verify option untuk menangkap raw body (diperlukan HMAC signature webhook GitHub)
+app.use(express.json({ limit: '15mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
+app.use(express.urlencoded({ extended: true, limit: '15mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // 4. Rate Limiting & Input Sanitization
 app.use('/api', globalRateLimiter);
@@ -129,8 +130,15 @@ app.use(inputSanitizer);
 app.use([
     '/api/auth/login',
     '/api/auth/register',
+    '/api/auth/google',
     '/api/auth/forgot-password',
     '/api/auth/verify-otp',
+    '/api/auth/register-request-otp',
+    '/api/auth/register-verify-otp',
+    '/api/auth/forgot-password-request',
+    '/api/auth/forgot-password-verify',
+    '/api/user/request-email-otp',
+    '/api/user/verify-email-otp',
     '/api/coupons/claim',
     '/api/order/ceir',
     '/api/order/barcode',

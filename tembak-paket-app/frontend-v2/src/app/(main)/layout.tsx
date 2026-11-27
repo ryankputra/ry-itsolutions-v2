@@ -8,6 +8,7 @@ import InteractiveTour from "@/components/ui/InteractiveTour";
 import RequiredPhoneModal from "@/components/ui/RequiredPhoneModal";
 import { MusicProvider } from "@/lib/musicContext";
 import { SpotifyPlayerBar } from "@/components/music/SpotifyPlayerBar";
+import { BottomBarStackProvider } from "@/lib/bottomBarStack";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useApp();
@@ -109,10 +110,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <MusicProvider>
-      <MainLayout>{children}</MainLayout>
+      <BottomBarStackProvider>
+        <MainLayout>{children}</MainLayout>
 
-      {/* Spotify-style Persistent Global Audio Player */}
-      <SpotifyPlayerBar />
+        {/* Spotify-style Persistent Global Audio Player */}
+        <SpotifyPlayerBar />
+      </BottomBarStackProvider>
 
       {/* Floating WhatsApp Unified Speed-Dial FAB (Hidden on /ai and /hiburan) */}
       {!isAiPage && !isHiburanPage && (
