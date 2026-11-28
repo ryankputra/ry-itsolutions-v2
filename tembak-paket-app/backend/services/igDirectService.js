@@ -1503,7 +1503,10 @@ async function publishOpenStory(options = {}) {
                     `🌐 https://ry-itsolutionts.web.id`;
                 // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
                 // BUG A(c): generateStoryVideo() bisa null → label media jujur, jangan klaim "video bermusik" kalau foto
-                results.openStory.whatsapp = await publishWhatsAppStory(openBuffer, captionStory1, false);
+                const videoData1 = await generateStoryVideo(openBuffer, openTrack);
+                const mediaToSend1 = videoData1?.videoBuffer || openBuffer;
+                const isVid1 = Boolean(videoData1?.videoBuffer);
+                results.openStory.whatsapp = await publishWhatsAppStory(mediaToSend1, captionStory1, isVid1);
             }
         } catch (waErr) {
             console.warn('[publishOpenStory] Warning saat posting WA Story 1 (Open):', waErr.message);
@@ -1533,7 +1536,10 @@ async function publishOpenStory(options = {}) {
                     `🌐 https://ry-itsolutionts.web.id`;
                 // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
                 // BUG A(c): generateStoryVideo() bisa null → label media jujur, jangan klaim "video bermusik" kalau foto
-                results.disclaimerStory.whatsapp = await publishWhatsAppStory(disclaimerBuffer, captionStory2, false);
+                const videoData2 = await generateStoryVideo(disclaimerBuffer, disclaimerTrack);
+                const mediaToSend2 = videoData2?.videoBuffer || disclaimerBuffer;
+                const isVid2 = Boolean(videoData2?.videoBuffer);
+                results.disclaimerStory.whatsapp = await publishWhatsAppStory(mediaToSend2, captionStory2, isVid2);
             }
         } catch (waErr2) {
             console.warn('[publishOpenStory] Warning saat posting WA Story 2 (Disclaimer):', waErr2.message);
