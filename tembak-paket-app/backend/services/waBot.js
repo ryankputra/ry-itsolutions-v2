@@ -2287,7 +2287,7 @@ async function sendAdminShortcutButtons(jid, bodyText, buttons) {
             buttonText: { displayText: b.text },
             type: 1
         }));
-        const content = btns.length > 0 ? { text: bodyText || "PANEL TOMBOL ADMIN", buttons: btns, headerType: 1 } : { text: bodyText };
+        const content = btns.length > 0 ? { buttonsMessage: { contentText: bodyText || "PANEL TOMBOL ADMIN", footerText: "Ry-ITSolutions", buttons: btns, headerType: 1 } } : { text: bodyText };
         await sendAndStoreMessage(jid, content);
         return true;
     } catch (e) {
@@ -3972,13 +3972,16 @@ async function notifyNewOrder(orderData) {
 
             try {
                 await sendAndStoreMessage(adminJid, {
-                    text: messageBody,
-                    buttons: [
-                        { buttonId: `wabot_order_proses_${id}`, buttonText: { displayText: "✅ Proses" }, type: 1 },
-                        { buttonId: `wabot_order_selesai_${id}`, buttonText: { displayText: "✅ Selesai" }, type: 1 },
-                        { buttonId: `wabot_order_gagal_${id}`, buttonText: { displayText: "❌ Batal/Refund" }, type: 1 }
-                    ],
-                    headerType: 1
+                    buttonsMessage: {
+                        contentText: messageBody,
+                        footerText: "Ry-ITSolutions",
+                        buttons: [
+                            { buttonId: `wabot_order_proses_${id}`, buttonText: { displayText: "✅ Proses" }, type: 1 },
+                            { buttonId: `wabot_order_selesai_${id}`, buttonText: { displayText: "✅ Selesai" }, type: 1 },
+                            { buttonId: `wabot_order_gagal_${id}`, buttonText: { displayText: "❌ Batal/Refund" }, type: 1 }
+                        ],
+                        headerType: 1
+                    }
                 });
                 logWABot(`✅ Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin})`, "info");
                 console.log(`[WABot] Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin}).`);
