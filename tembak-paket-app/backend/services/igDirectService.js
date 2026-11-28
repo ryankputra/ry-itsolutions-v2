@@ -60,6 +60,7 @@ const TRENDING_TRACKS = [
 ];
 
 const { getRandomDJTrack, getUniqueDJTracks, getActiveDJTracks } = require('./tiktokDJService');
+const { renderV6, ORDER_CONTENT } = require('./storyVisualV6');
 
 function getRandomTrack() {
     try {
@@ -67,6 +68,267 @@ function getRandomTrack() {
         if (djTrack) return djTrack;
     } catch {}
     return TRENDING_TRACKS[Math.floor(Math.random() * TRENDING_TRACKS.length)];
+}
+
+/**
+ * Story v5 - konten & guard frasa terlarang.
+ * Sumber: STORY-ORDER-MAPPING-v5.md / SPEC-v5.md (workspace tim).
+ */
+const STORY_HOURS_NOTICE = 'Web buka 24 jam • WA tutup 22.00 WIB';
+const STORY_READY_LIST = 'READY: 3B SF FAST • 1B FAST • 3B SLOW';
+// Pemetaan urutan harian v5 (Sabtu-Minggu = pengulangan langkah 1-2).
+const STORY_V5_DAY_ORDER = [
+    { day: 'senin', step: 1, story: 'open' },
+    { day: 'selasa', step: 2, story: 'ready' },
+    { day: 'rabu', step: 3, story: 'close_list_slow' },
+    { day: 'kamis', step: 4, story: 'partial_close' },
+    { day: 'jumat', step: 5, story: 'close_toko' },
+    { day: 'sabtu', step: 1, story: 'open' },
+    { day: 'minggu', step: 2, story: 'ready' }
+];
+const STORY_FORBIDDEN_PATTERNS = [
+    /proses\s+cepat\s+under\s+15\s+menit/i,
+    /proses\s+kilat\s+under\s+15\s+mnt/i,
+    /under\s+15\s+menit/i,
+    /under\s+15\s+mnt/i,
+    /jangan\s+claim/i,
+    /whatsapp[^\n]{0,60}buka\s+24\s+jam/i,
+    /wa\s+buka\s+24\s+jam/i,
+    /web\s*&\s*wa\s*24\s+jam/i,
+    /web\s*&\s*whatsapp\s+buka\s+24\s+jam/i
+];
+
+function sanitizeStoryText(text) {
+    return String(text == null ? '' : text)
+        .replace(/proses\s+cepat\s+under\s+15\s+menit/gi, 'Prioritas Server Aktif')
+        .replace(/proses\s+kilat\s+under\s+15\s+mnt/gi, 'Prioritas Server Aktif')
+        .replace(/under\s+15\s+menit/gi, 'Prioritas Server Aktif')
+        .replace(/under\s+15\s+mnt/gi, 'Prioritas Server Aktif')
+        .replace(/jangan\s+claim/gi, '')
+        .replace(/web\s*&\s*whatsapp\s+buka\s+24\s+jam/gi, STORY_HOURS_NOTICE)
+        .replace(/web\s*&\s*wa\s*24\s+jam/gi, STORY_HOURS_NOTICE)
+        .replace(/whatsapp[^\n]*?buka\s+24\s+jam/gi, STORY_HOURS_NOTICE)
+        .replace(/wa\s+buka\s+24\s+jam/gi, STORY_HOURS_NOTICE);
+}
+
+function assertNoForbiddenPhrases(text, label = 'story') {
+    const raw = String(text == null ? '' : text);
+    const found = STORY_FORBIDDEN_PATTERNS.filter(re => re.test(raw));
+    if (found.length) {
+        throw new Error(`[Story v5] Frasa terlarang pada ${label}: ${found.map(r => r.source).join(', ')}`);
+    }
+    return raw;
+}
+
+// Nama kanonik backend -> label yang disetujui user di mockup v5.
+function getDisplayServiceName(name) {
+    const clean = String(name || '');
+    if (/^1B\s+DIGIPOS/i.test(clean) || /^1B\s+INBOUND/i.test(clean)) return '1B FAST';
+    if (/^1B\s+FAST/i.test(clean)) return '1B FAST';
+    return clean;
+}
+
+/**
+ * Story Background Photo Rotation Module
+ * - 23 foto curated: 7 foto hari (Senin = iPhone, CC BY 2.0 Pingz Man) + 16 Commons.
+ * - Mode 'daily': foto hari sesuai WIB (date-based seed fallback).
+ * - Mode 'single_use': pakai tiap foto sekali, lalu ulang siklus.
+ * - Mode tersimpan di data/story_bg_mode.json; state di data/story_bg_consumed.json.
+ * - Fallback gradient saat manifest/foto tidak tersedia.
+ */
+const STORY_BG_DIR = path.resolve(__dirname, '..', 'assets', 'story-backgrounds');
+const STORY_BG_MANIFEST = path.join(STORY_BG_DIR, 'manifest.json');
+const STORY_BG_CONSUMED_FILE = path.resolve(__dirname, '..', 'data', 'story_bg_consumed.json');
+const STORY_BG_MODE_FILE = path.resolve(__dirname, '..', 'data', 'story_bg_mode.json');
+
+function getWIBDateString() {
+    return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+}
+
+function getWIBDayKey() {
+    // id-ID weekday long -> minggu, senin, selasa, rabu, kamis, jumat, sabtu
+    return new Date().toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", weekday: "long" }).toLowerCase();
+}
+
+function getWIBDayIndex() {
+    // Returns short weekday in WIB (Sun..Sat), dipakai getSoftDailyTheme()
+    return new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta", weekday: "short" });
+}
+
+function getStoryBackgroundMode() {
+    try {
+        if (fs.existsSync(STORY_BG_MODE_FILE)) {
+            const raw = JSON.parse(fs.readFileSync(STORY_BG_MODE_FILE, 'utf-8'));
+            const mode = String(raw?.mode || 'daily').toLowerCase();
+            return mode === 'single_use' ? 'single_use' : 'daily';
+        }
+    } catch (e) {
+        console.warn('[StoryBG] Gagal baca mode:', e.message);
+    }
+    return 'daily';
+}
+
+function setStoryBackgroundMode(mode) {
+    const normalized = String(mode).toLowerCase() === 'single_use' ? 'single_use' : 'daily';
+    try {
+        const dir = path.dirname(STORY_BG_MODE_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(STORY_BG_MODE_FILE, JSON.stringify({ mode: normalized }, null, 2));
+    } catch (e) {
+        console.warn('[StoryBG] Gagal simpan mode:', e.message);
+    }
+    return normalized;
+}
+
+function loadManifest() {
+    try {
+        if (fs.existsSync(STORY_BG_MANIFEST)) {
+            const raw = JSON.parse(fs.readFileSync(STORY_BG_MANIFEST, 'utf-8'));
+            return Array.isArray(raw.items) ? raw.items : [];
+        }
+    } catch (e) {
+        console.warn('[StoryBG] Gagal baca manifest:', e.message);
+    }
+    return [];
+}
+
+function loadConsumedState() {
+    try {
+        if (fs.existsSync(STORY_BG_CONSUMED_FILE)) {
+            const raw = JSON.parse(fs.readFileSync(STORY_BG_CONSUMED_FILE, 'utf-8'));
+            if (raw && typeof raw === 'object') return raw;
+        }
+    } catch (e) {}
+    return {};
+}
+
+function saveConsumedState(state) {
+    try {
+        const dir = path.dirname(STORY_BG_CONSUMED_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(STORY_BG_CONSUMED_FILE, JSON.stringify(state, null, 2));
+    } catch (e) {
+        console.warn('[StoryBG] Gagal simpan consumed state:', e.message);
+    }
+}
+
+function isConsumedAnywhere(consumed, id) {
+    return Object.values(consumed).some(v => (v && typeof v === 'object') ? Boolean(v[id]) : Boolean(consumed[id]));
+}
+
+function getGradientBackgroundMarkup(theme) {
+    return {
+        defs: `
+            <linearGradient id="storySoftBg" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="${theme.bgGradient.from}"/>
+                <stop offset="50%" stop-color="${theme.bgGradient.mid}"/>
+                <stop offset="100%" stop-color="${theme.bgGradient.to}"/>
+            </linearGradient>
+            <filter id="storySoftGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="90"/>
+            </filter>`,
+        body: `
+            <rect width="100%" height="100%" fill="url(#storySoftBg)"/>
+            <circle cx="540" cy="380" r="380" fill="${theme.ambientLight1}" filter="url(#storySoftGlow)"/>
+            <circle cx="540" cy="1200" r="420" fill="${theme.ambientLight2}" filter="url(#storySoftGlow)"/>`
+    };
+}
+
+function getPhotoDataUri(photoFile) {
+    const photoPath = path.join(STORY_BG_DIR, photoFile);
+    try {
+        if (fs.existsSync(photoPath)) {
+            const buf = fs.readFileSync(photoPath);
+            return 'data:image/jpeg;base64,' + buf.toString('base64');
+        }
+    } catch (e) {
+        console.warn('[StoryBG] Gagal baca foto:', photoFile, e.message);
+    }
+    return null;
+}
+
+function getPhotoBackgroundMarkup(photoUri) {
+    return {
+        defs: `
+            <linearGradient id="storyScrim" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="rgba(15,23,42,0.38)"/>
+                <stop offset="50%" stop-color="rgba(15,23,42,0.16)"/>
+                <stop offset="100%" stop-color="rgba(15,23,42,0.48)"/>
+            </linearGradient>
+            <linearGradient id="storyHeadlineVeil" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="rgba(255,255,255,0)"/>
+                <stop offset="18%" stop-color="rgba(255,255,255,0.9)"/>
+                <stop offset="82%" stop-color="rgba(255,255,255,0.9)"/>
+                <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+            </linearGradient>`,
+        body: `
+            <image href="${photoUri}" x="0" y="0" width="1080" height="1920" preserveAspectRatio="xMidYMid slice"/>
+            <rect width="100%" height="100%" fill="url(#storyScrim)"/>
+            <!-- Veil putih menjaga kontras headline di atas foto gelap -->
+            <rect x="40" y="320" width="1000" height="330" fill="url(#storyHeadlineVeil)"/>`
+    };
+}
+
+/**
+ * Background markup siap disisipkan ke dalam <svg> generator story.
+ * Returns { defs, body, photoUsed, dayKey, mode }
+ */
+async function getStoryBackgroundMarkup(theme, options = {}) {
+    const { mode: modeOverride = null, dayKey: dayOverride = null, date: dateOverride = null } = options;
+    const mode = modeOverride || getStoryBackgroundMode();
+    const items = loadManifest();
+    const consumed = loadConsumedState();
+    const today = dateOverride || getWIBDateString();
+    const dayKey = dayOverride || getWIBDayKey();
+
+    const fallback = () => ({ ...getGradientBackgroundMarkup(theme), photoUsed: null, dayKey, mode });
+
+    if (items.length === 0) return fallback();
+
+    let selectedItem = null;
+
+    if (mode === 'single_use') {
+        for (const item of items) {
+            if (!isConsumedAnywhere(consumed, item.id)) {
+                selectedItem = item;
+                break;
+            }
+        }
+        if (!selectedItem) {
+            Object.keys(consumed).forEach(k => delete consumed[k]);
+            saveConsumedState(consumed);
+            selectedItem = items[0];
+        }
+        if (!consumed[today] || typeof consumed[today] !== 'object') consumed[today] = {};
+        consumed[today][selectedItem.id] = true;
+        saveConsumedState(consumed);
+    } else {
+        // Foto hari (Senin -> iPhone) lebih dulu; fallback date-seed deterministik.
+        selectedItem = items.find(item => item.dayKey === dayKey) || null;
+        if (!selectedItem) {
+            const dateSeed = today.split('-').join('');
+            const seedNum = parseInt(dateSeed.slice(-6), 10) || 1;
+            selectedItem = items[seedNum % items.length];
+        }
+    }
+
+    const photoUri = getPhotoDataUri(selectedItem.file);
+    if (!photoUri) return fallback();
+
+    return { ...getPhotoBackgroundMarkup(photoUri), photoUsed: selectedItem.file, dayKey, mode };
+}
+
+/**
+ * Backward-compatible wrapper: SVG latar lengkap (photo + scrim atau gradient).
+ */
+async function getStoryBackgroundSvg(theme, options = {}) {
+    const bg = await getStoryBackgroundMarkup(theme, options);
+    return {
+        svg: `<svg width="1080" height="1920" xmlns="http://www.w3.org/2000/svg"><defs>${bg.defs}</defs>${bg.body}</svg>`,
+        photoUsed: bg.photoUsed,
+        dayKey: bg.dayKey,
+        mode: bg.mode
+    };
 }
 
 function getUniqueTracks(count) {
@@ -345,8 +607,11 @@ const SOFT_BLUE_THEMES = [
     }
 ];
 
-function getSoftDailyTheme(dayIndex = new Date().getDay()) {
-    return SOFT_BLUE_THEMES[dayIndex % 7];
+function getSoftDailyTheme(dayIndex = new Date().toLocaleString("en-US", { timeZone: "Asia/Jakarta", weekday: "short" })) {
+    // Map weekday short name to index (Sun=0...Sat=6) in WIB
+    const wibWeekdayMap = { 'Sun': 0, 'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4, 'Fri': 5, 'Sat': 6 };
+    const idx = wibWeekdayMap[dayIndex] ?? new Date().getDay();
+    return SOFT_BLUE_THEMES[idx % 7];
 }
 
 /**
@@ -404,23 +669,8 @@ async function prepareImageForStory(imageBuffer, trackInfo = null, options = {})
 
     // 2. Mode Screenshot Testimoni Pelanggan:
     // Gunakan kanvas Soft White & Blue 100% Full Canvas Edge-to-Edge (Bukan Dark Blur / AI Slop!)
-    const bgSvg = `
-    <svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-            <linearGradient id="softBg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="${theme.bgGradient.from}"/>
-                <stop offset="50%" stop-color="${theme.bgGradient.mid}"/>
-                <stop offset="100%" stop-color="${theme.bgGradient.to}"/>
-            </linearGradient>
-            <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="90"/>
-            </filter>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#softBg)"/>
-        <circle cx="540" cy="380" r="380" fill="${theme.ambientLight1}" filter="url(#softGlow)"/>
-        <circle cx="540" cy="1200" r="420" fill="${theme.ambientLight2}" filter="url(#softGlow)"/>
-    </svg>
-    `;
+    const bg = await getStoryBackgroundMarkup(theme);
+    const bgSvg = `<svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg"><defs>${bg.defs}</defs>${bg.body}</svg>`;
 
     // Pastikan ukuran screenshot muat LEBIH FULL (lebar 1020px, sisa margin 30px samping) & safe zone (y: 145 s/d 1680)
     const maxContentW = 1020;
@@ -1082,124 +1332,46 @@ async function publishToFeed(imageBuffer, caption = '', customTrack = null) {
     }
 }
 
-function generateSoftOpenSvg(theme, timestampWIB, dateWIB) {
+async function generateSoftOpenSvg(theme, timestampWIB, dateWIB, bgOverride = null) {
     const targetW = 1080;
     const targetH = 1920;
-
-    return `
-    <svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-            <linearGradient id="softOpenBg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="${theme.bgGradient.from}"/>
-                <stop offset="50%" stop-color="${theme.bgGradient.mid}"/>
-                <stop offset="100%" stop-color="${theme.bgGradient.to}"/>
-            </linearGradient>
-            <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="90"/>
-            </filter>
-            <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
-                <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.04"/>
-            </filter>
-        </defs>
-
-        <!-- 100% Full Canvas Edge-to-Edge Background -->
-        <rect width="100%" height="100%" fill="url(#softOpenBg)"/>
-
-        <!-- Subtle Ambient Light -->
-        <circle cx="540" cy="380" r="380" fill="${theme.ambientLight1}" filter="url(#softGlow)"/>
-        <circle cx="540" cy="1200" r="420" fill="${theme.ambientLight2}" filter="url(#softGlow)"/>
-
-        <!-- Top Branding Logo (y=220) -->
-        <g transform="translate(475, 220)" filter="url(#cardShadow)">
-            <rect width="130" height="130" rx="28" fill="#ffffff" stroke="${theme.primaryColor}" stroke-width="2.5"/>
-            <image href="${getAddRoamerLogoUri()}" x="8" y="8" width="114" height="114" preserveAspectRatio="xMidYMid meet"/>
-        </g>
-
-        <!-- Status Pill Badge -->
-        <rect x="365" y="380" width="350" height="46" rx="23" fill="#dcfce7" stroke="#86efac" stroke-width="1.8"/>
-        <circle cx="395" cy="403" r="7" fill="#16a34a"/>
-        <text x="545" y="411" font-family="Arial, -apple-system, sans-serif" font-size="20" font-weight="bold" fill="#15803d" text-anchor="middle">ONLINE &amp; READY</text>
-
-        <!-- Main Headlines -->
-        <text x="540" y="500" font-family="Arial, -apple-system, sans-serif" font-size="74" font-weight="900" fill="#0f172a" text-anchor="middle" letter-spacing="1">WE ARE OPEN!</text>
-        <text x="540" y="555" font-family="Arial, -apple-system, sans-serif" font-size="32" font-weight="900" fill="${theme.primaryColor}" text-anchor="middle">${theme.badgeText}</text>
-        <text x="540" y="600" font-family="Arial, -apple-system, sans-serif" font-size="24" font-weight="500" fill="#64748b" text-anchor="middle">${dateWIB} • Jam Operasional Aktif</text>
-
-        <!-- Priority Services Card (y=645, height=520) -->
-        <g transform="translate(70, 645)" filter="url(#cardShadow)">
-            <rect width="940" height="520" rx="30" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>
-            
-            <text x="470" y="62" font-family="Arial, -apple-system, sans-serif" font-size="30" font-weight="bold" fill="#0f172a" text-anchor="middle">LAYANAN PRIORITAS HARI INI</text>
-            <line x1="60" y1="92" x2="880" y2="92" stroke="#e2e8f0" stroke-width="1.5"/>
-
-            <!-- Item 1: Add Roamer -->
-            <rect x="50" y="125" width="56" height="56" rx="14" fill="#eff6ff"/>
-            <text x="78" y="162" font-family="Arial, sans-serif" font-size="28" fill="${theme.primaryColor}" text-anchor="middle">⚡</text>
-            <text x="130" y="150" font-family="Arial, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#0f172a">Layanan Add Roamer (Unlock Sinyal)</text>
-            <text x="130" y="184" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#475569">Paket Resmi Durasi 1 Bulan &amp; 3 Bulan All Operator</text>
-            <text x="130" y="214" font-family="Arial, -apple-system, sans-serif" font-size="20" font-weight="bold" fill="${theme.primaryColor}">Mendukung: Telkomsel, Indosat, XL, Tri, SF</text>
-
-            <!-- Item 2: Cek CEIR & Garansi -->
-            <rect x="50" y="260" width="56" height="56" rx="14" fill="#f0fdf4"/>
-            <text x="78" y="297" font-family="Arial, sans-serif" font-size="28" fill="#16a34a" text-anchor="middle">🔍</text>
-            <text x="130" y="285" font-family="Arial, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#0f172a">Cek Status CEIR &amp; Klaim Garansi</text>
-            <text x="130" y="320" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#475569">Diagnostik legalitas database Bea Cukai &amp; Kemenperin terpercaya</text>
-
-            <!-- Item 3: Transaksi Digital -->
-            <rect x="50" y="380" width="56" height="56" rx="14" fill="#eff6ff"/>
-            <text x="78" y="417" font-family="Arial, sans-serif" font-size="28" fill="${theme.secondaryColor}" text-anchor="middle">🛡️</text>
-            <text x="130" y="405" font-family="Arial, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#0f172a">Transaksi Aman, Transparan &amp; Bergaransi</text>
-            <text x="130" y="440" font-family="Arial, -apple-system, sans-serif" font-size="21" font-weight="bold" fill="#059669">Tercatat otomatis ke dalam sistem nota digital web resmi</text>
-        </g>
-
-        <!-- Contact & Web Portal Card (y=1200, height=270) -->
-        <g transform="translate(70, 1200)" filter="url(#cardShadow)">
-            <rect width="940" height="270" rx="28" fill="#ffffff" stroke="${theme.primaryColor}" stroke-width="2"/>
-            <text x="470" y="62" font-family="Arial, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#0f172a" text-anchor="middle">Fast Response via WhatsApp &amp; Web</text>
-            
-            <g transform="translate(320, 122)">
-                <circle cx="0" cy="0" r="14" fill="none" stroke="${theme.primaryColor}" stroke-width="2.5"/>
-                <ellipse cx="0" cy="0" rx="6" ry="14" fill="none" stroke="${theme.primaryColor}" stroke-width="2"/>
-                <line x1="-14" y1="0" x2="14" y2="0" stroke="${theme.primaryColor}" stroke-width="2"/>
-            </g>
-            <text x="350" y="131" font-family="Arial, -apple-system, sans-serif" font-size="34" font-weight="bold" fill="${theme.primaryColor}">ry-itsolutionts.web.id</text>
-
-            <rect x="270" y="175" width="400" height="48" rx="24" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.2"/>
-            <text x="470" y="206" font-family="Arial, -apple-system, sans-serif" font-size="22" font-weight="bold" fill="${theme.primaryColor}" text-anchor="middle">Buka Mulai: ${timestampWIB} WIB</text>
-        </g>
-    </svg>
-    `;
+    const dayKey = getWIBDayKey();
+    const orderContent = (ORDER_CONTENT && ORDER_CONTENT[dayKey]) ? ORDER_CONTENT[dayKey].content : null;
+    const content = orderContent || {
+        badge: 'ONLINE & READY', eyebrow: 'STORY OPEN • ' + dayKey.toUpperCase(),
+        head1: 'WE ARE', head2: 'OPEN!', cardTitle: 'LAYANAN PRIORITAS HARI INI',
+        line1: 'Add Roamer • Cek Status CEIR • Klaim Garansi',
+        line2: 'Telkomsel, Indosat, XL, Tri, SF',
+        cta: 'Fast Response via WhatsApp & Web'
+    };
+    const bg = bgOverride || await getStoryBackgroundMarkup(theme);
+    const photoDataUri = bg && bg.photoUsed ? getPhotoDataUri(bg.photoUsed) : null;
+    const svg = renderV6(dayKey, content, photoDataUri);
+    if (svg) return svg;
+    // Fallback to gradient background if render fails
+    const fallbackBg = bgOverride || await getStoryBackgroundMarkup(theme);
+    return `<svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg"><defs>${fallbackBg.defs}</defs>${fallbackBg.body}</svg>`;
 }
 
-function generateSoftDisclaimerSvg(theme, musicTrack) {
+async function generateSoftDisclaimerSvg(theme, musicTrack, bgOverride = null) {
     const targetW = 1080;
     const targetH = 1920;
     const track = musicTrack || getRandomTrack();
     const safeTitle = escapeXml(track.title);
     const safeArtist = escapeXml(track.artist);
+    const bg = bgOverride || await getStoryBackgroundMarkup(theme);
 
     return `
     <svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg">
         <defs>
-            <linearGradient id="softDisclaimerBg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="${theme.bgGradient.from}"/>
-                <stop offset="50%" stop-color="${theme.bgGradient.mid}"/>
-                <stop offset="100%" stop-color="${theme.bgGradient.to}"/>
-            </linearGradient>
-            <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="90"/>
-            </filter>
+            ${bg.defs}
             <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
                 <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.04"/>
             </filter>
         </defs>
 
-        <!-- 100% Full Canvas Edge-to-Edge Background -->
-        <rect width="100%" height="100%" fill="url(#softDisclaimerBg)"/>
-
-        <!-- Subtle Ambient Light -->
-        <circle cx="540" cy="400" r="380" fill="${theme.ambientLight1}" filter="url(#softGlow)"/>
-        <circle cx="540" cy="1250" r="420" fill="${theme.ambientLight2}" filter="url(#softGlow)"/>
+        <!-- Background: foto curated hari ini / gradient fallback -->
+        ${bg.body}
 
         <!-- 1. Music Player Bar (In Safe Zone y=185) -->
         <g transform="translate(150, 185)" filter="url(#cardShadow)">
@@ -1294,8 +1466,12 @@ async function publishOpenStory(options = {}) {
     const openTrack = getRandomTrack();
     const disclaimerTrack = getRandomTrack();
 
-    const openSvg = generateSoftOpenSvg(theme, timestampWIB, dateWIB);
-    const disclaimerSvg = generateSoftDisclaimerSvg(theme, disclaimerTrack);
+    // Satu latar untuk kedua story agar mode sekali pakai tidak memilih foto yang sama secara paralel.
+    const storyBg = await getStoryBackgroundMarkup(theme);
+    const [openSvg, disclaimerSvg] = await Promise.all([
+        generateSoftOpenSvg(theme, timestampWIB, dateWIB, storyBg),
+        generateSoftDisclaimerSvg(theme, disclaimerTrack, storyBg)
+    ]);
 
     const [openBuffer, disclaimerBuffer] = await Promise.all([
         sharp(Buffer.from(openSvg)).jpeg({ quality: 95 }).toBuffer(),
@@ -1381,33 +1557,23 @@ async function publishOpenStory(options = {}) {
     return results;
 }
 
-function generateNewServiceSvg(theme, serviceName, speed, timestampWIB, dateWIB) {
+async function generateNewServiceSvg(theme, serviceName, speed, timestampWIB, dateWIB) {
     const targetW = 1080;
     const targetH = 1920;
     const speedLabel = (speed || 'fast').toUpperCase();
+    const bg = await getStoryBackgroundMarkup(theme);
 
     return `
     <svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg">
         <defs>
-            <linearGradient id="newServiceBg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="${theme.bgGradient.from}"/>
-                <stop offset="50%" stop-color="${theme.bgGradient.mid}"/>
-                <stop offset="100%" stop-color="${theme.bgGradient.to}"/>
-            </linearGradient>
-            <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="90"/>
-            </filter>
+            ${bg.defs}
             <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
                 <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.04"/>
             </filter>
         </defs>
 
-        <!-- 100% Full Canvas Edge-to-Edge Background -->
-        <rect width="100%" height="100%" fill="url(#newServiceBg)"/>
-
-        <!-- Ambient Lights -->
-        <circle cx="540" cy="380" r="380" fill="${theme.ambientLight1}" filter="url(#softGlow)"/>
-        <circle cx="540" cy="1200" r="420" fill="${theme.ambientLight2}" filter="url(#softGlow)"/>
+        <!-- Background: foto curated hari ini / gradient fallback -->
+        ${bg.body}
 
         <!-- Top Branding Logo (y=220) -->
         <g transform="translate(475, 220)" filter="url(#cardShadow)">
@@ -1468,7 +1634,7 @@ async function publishNewServiceStory(serviceName, speed = "fast") {
     const timestampWIB = new Date().toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" });
     const track = getRandomTrack();
 
-    const svg = generateNewServiceSvg(theme, serviceName, speed, timestampWIB, dateWIB);
+    const svg = await generateNewServiceSvg(theme, serviceName, speed, timestampWIB, dateWIB);
     const buffer = await sharp(Buffer.from(svg)).jpeg({ quality: 95 }).toBuffer();
 
     const results = { instagram: null, whatsapp: null };
@@ -1604,7 +1770,7 @@ ATURAN WAJIB (SANGAT KETAT):
   "cutoffTime": null,
   "cutoffDay": null,
   "services": [
-    { "name": "3B SF FAST", "status": "READY", "desc": "Proses Cepat Under 15 Menit" }
+    { "name": "3B SF FAST", "status": "READY", "desc": "Prioritas Server Aktif" }
   ],
   "note": "3B SF Fast Ready"
 }
@@ -1667,7 +1833,7 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
                                     if (parsed.services.length === 0) {
                                         parsed.services = [{ name: "3B SF FAST", status: "CLOSED", desc: "Kloter Ditutup Sementara" }];
                                     }
-                                    parsed.note = "3B Slow Tetap Buka 24 Jam • Sampai Jumpa di Kloter Berikutnya";
+                                    parsed.note = "3B Slow Tetap Tersedia • Sampai Jumpa di Kloter Berikutnya";
                                 } else if (hasAnyFastClosed && hasAnyFastReady) {
                                     parsed.type = "PARTIAL_CLOSE";
                                     parsed.title = "UPDATE SLOT";
@@ -1784,7 +1950,7 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
         services.push({
             name: "3B SF FAST",
             status: fastStatus,
-            desc: fastStatus === 'CLOSED' ? "Full Slot / Ditutup Sementara" : "Proses Cepat Under 15 Menit"
+            desc: fastStatus === 'CLOSED' ? "Full Slot / Ditutup Sementara" : "Prioritas Server Aktif"
         });
     }
 
@@ -1814,7 +1980,7 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
             services.unshift({
                 name: "3B SF FAST",
                 status: "READY",
-                desc: "Proses Cepat Under 15 Menit"
+                desc: "Prioritas Server Aktif"
             });
         }
         if (!services.some(s => s.name === "3B SF SLOW")) {
@@ -1863,7 +2029,7 @@ ${safeText || '(Tidak ada teks caption, analisa isi gambar terlampir)'}`;
         if (finalServices.length === 0) {
             finalServices = [{ name: "3B SF FAST", status: "CLOSED", desc: "Kloter Ditutup Sementara" }];
         }
-        finalNote = "3B Slow Tetap Buka 24 Jam • Sampai Jumpa di Kloter Berikutnya";
+        finalNote = "3B Slow Tetap Tersedia • Sampai Jumpa di Kloter Berikutnya";
     } else if (isExeOnlyClose || (hasAnyFastClosed && hasAnyFastReady)) {
         finalType = "PARTIAL_CLOSE";
         finalTitle = "UPDATE SLOT";
@@ -2013,10 +2179,11 @@ function syncRiveraDailyServices(incomingServices = [], isFullClose = false) {
 /**
  * Generate Story 3 Graphic (1080x1920) untuk Update Slot & Status Rivera
  */
-async function generateRiveraUpdateGraphic(parsedData) {
+async function generateRiveraUpdateGraphic(parsedData, options = {}) {
     const targetW = 1080;
     const targetH = 1920;
     const theme = getSoftDailyTheme();
+    const bg = await getStoryBackgroundMarkup(theme);
     const dateWIB = new Date().toLocaleDateString("id-ID", { timeZone: "Asia/Jakarta", weekday: "long", day: "numeric", month: "long", year: "numeric" });
     const timestampWIB = new Date().toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit" });
 
@@ -2028,7 +2195,7 @@ async function generateRiveraUpdateGraphic(parsedData) {
     const rawServices = Array.isArray(parsedData.services) && parsedData.services.length > 0
         ? parsedData.services
         : [
-            { name: "3B SF FAST", status: isDone ? "DONE" : (isFullClose ? "CLOSED" : "READY"), desc: isDone ? "Antrean Fast Selesai Diproses" : (isFullClose ? "Ditutup Sementara" : "Proses Cepat Under 15 Menit") }
+            { name: "3B SF FAST", status: isDone ? "DONE" : (isFullClose ? "CLOSED" : "READY"), desc: isDone ? "Antrean Fast Selesai Diproses" : (isFullClose ? "Ditutup Sementara" : "Prioritas Server Aktif") }
         ];
 
     // Canonical deduplication on services before rendering
@@ -2101,8 +2268,8 @@ async function generateRiveraUpdateGraphic(parsedData) {
             cardBorder = "#fecdd3";
         }
 
-        const cleanName = escapeXml(s.name ? s.name.replace(/smartfren/gi, 'SF').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu, '') : '');
-        const cleanDesc = escapeXml(s.desc ? s.desc.replace(/smartfren/gi, 'SF').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu, '') : '');
+        const cleanName = escapeXml(getDisplayServiceName(s.name).replace(/smartfren/gi, 'SF').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu, ''));
+        const cleanDesc = escapeXml(sanitizeStoryText(s.desc ? s.desc.replace(/smartfren/gi, 'SF').replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu, '') : ''));
         const pillY = numCards > 3 ? 37 : 44;
         const textTitleY = numCards > 3 ? 52 : 58;
         const textDescY = numCards > 3 ? 88 : 98;
@@ -2196,13 +2363,13 @@ async function generateRiveraUpdateGraphic(parsedData) {
     }
 
     // Catatan slogan rapi & profesional (tidak menggunakan teks mentah chat berantakan)
-    let displayNote = "Semua Bergaransi Tanpa Drama";
+    let displayNote = STORY_READY_LIST;
     let noteCardBg = "#eff6ff";
     let noteCardBorder = theme.primaryColor;
     let noteTextColor = theme.primaryColor;
 
     if (isCloseListSlow) {
-        displayNote = "Pemesanan Web & WhatsApp Buka 24 Jam • Antrean Otomatis";
+        displayNote = `${STORY_HOURS_NOTICE} • Antrean Otomatis`;
         noteCardBg = "#eff6ff";
         noteCardBorder = "#3b82f6";
         noteTextColor = "#1d4ed8";
@@ -2212,7 +2379,7 @@ async function generateRiveraUpdateGraphic(parsedData) {
         noteCardBorder = "#86efac";
         noteTextColor = "#15803d";
     } else if (isFullClose) {
-        displayNote = parsedData.note || "Pemesanan Web & WhatsApp Tetap Buka • Sampai Jumpa di Kloter Berikutnya";
+        displayNote = sanitizeStoryText(parsedData.note || `${STORY_HOURS_NOTICE} • Sampai Jumpa di Kloter Berikutnya`);
         noteCardBg = "#fff1f2";
         noteCardBorder = "#fda4af";
         noteTextColor = "#e11d48";
@@ -2226,23 +2393,14 @@ async function generateRiveraUpdateGraphic(parsedData) {
     const svg = `
         <svg width="${targetW}" height="${targetH}" xmlns="http://www.w3.org/2000/svg">
             <defs>
-                <linearGradient id="softRiveraBg" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stop-color="${theme.bgGradient.from}"/>
-                    <stop offset="50%" stop-color="${theme.bgGradient.mid}"/>
-                    <stop offset="100%" stop-color="${theme.bgGradient.to}"/>
-                </linearGradient>
-                <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="90"/>
-                </filter>
+                ${bg.defs}
                 <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
                     <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0f172a" flood-opacity="0.04"/>
                 </filter>
             </defs>
-            <rect width="100%" height="100%" fill="url(#softRiveraBg)"/>
 
-            <!-- Ambient Glow Accents -->
-            <circle cx="540" cy="380" r="380" fill="${theme.ambientLight1}" filter="url(#softGlow)"/>
-            <circle cx="540" cy="1200" r="420" fill="${theme.ambientLight2}" filter="url(#softGlow)"/>
+            <!-- Background: foto curated hari ini / gradient fallback -->
+            ${bg.body}
 
             <!-- Logo Seal ADD ROAMER ALL PROVIDER (y=224, proporsional dan rapi) -->
             <g transform="translate(485, 224)" filter="url(#cardShadow)">
@@ -2282,11 +2440,12 @@ async function generateRiveraUpdateGraphic(parsedData) {
                     <line x1="-14" y1="0" x2="14" y2="0" stroke="${theme.primaryColor}" stroke-width="2"/>
                 </g>
                 <text x="340" y="113" font-family="'Plus Jakarta Sans', Arial, sans-serif" font-size="34" font-weight="bold" fill="${theme.primaryColor}">ry-itsolutionts.web.id</text>
-                <text x="460" y="160" font-family="'Plus Jakarta Sans', Arial, sans-serif" font-size="20" fill="#64748b" text-anchor="middle">Slot terbatas per kloter • Pengerjaan otomatis sesuai antrean</text>
+                <text x="460" y="160" font-family="'Plus Jakarta Sans', Arial, sans-serif" font-size="18" fill="#64748b" text-anchor="middle">${STORY_HOURS_NOTICE} • Pengerjaan sesuai antrean</text>
             </g>
         </svg>
     `;
 
+    if (options.returnSvg) return svg;
     return await sharp(Buffer.from(svg)).jpeg({ quality: 95 }).toBuffer();
 }
 
@@ -2319,8 +2478,8 @@ async function publishRiveraStory(parsedData, options = {}) {
                 const isDone = parsedData.type === "DONE_NOTIFICATION";
                 const servicesText = (parsedData.services || [])
                     .map(s => {
-                        const cleanName = (s.name || '').replace(/rivera/gi, '').trim();
-                        const cleanDesc = (s.desc || '').replace(/rivera/gi, '').trim();
+                        const cleanName = getDisplayServiceName(s.name || '').replace(/rivera/gi, '').trim();
+                        const cleanDesc = sanitizeStoryText((s.desc || '').replace(/rivera/gi, '').trim());
                         const isOk = s.status === 'READY' || s.status === 'DONE';
                         const statusLabel = s.status === 'READY' ? 'Ready' : (s.status === 'DONE' ? 'Done / Selesai' : 'Full Slot / Closed');
                         return `${isOk ? '🟢' : '🔴'} *${cleanName}*: ${statusLabel}${cleanDesc ? ` (${cleanDesc})` : ''}`;
@@ -2334,8 +2493,8 @@ async function publishRiveraStory(parsedData, options = {}) {
                     const cutoffLabel = parsedData.cutoffTime ? `${parsedData.cutoffTime} WIB` : "15.00 WIB";
                     caption = `⏳ *INFO SERVER PUSAT: CLOSE LIST 3B SF SLOW (KLOTER HARI INI)!*\n\n` +
                       `• Orderan yang masuk *sebelum ${cutoffLabel}* sedang diproses server dan estimasi *DONE malam ini*.\n` +
-                      `• Pemesanan via Web & WhatsApp *tetap buka 24 jam*. Orderan yang masuk *setelah ${cutoffLabel}* otomatis diproses pada *kloter esok hari*.\n\n` +
-                      `🛡️ *Pemesanan Web & WhatsApp Tetap Buka 24 Jam Tanpa Drama*\n` +
+                      `• ${STORY_HOURS_NOTICE}. Orderan yang masuk *setelah ${cutoffLabel}* otomatis diproses pada *kloter esok hari*.\n\n` +
+                      `🛡️ *${STORY_HOURS_NOTICE}*\n` +
                       `🗓️ ${dateWIB} (${timestampWIB} WIB)\n\n` +
                       `🌐 Order via Web: https://ry-itsolutionts.web.id`;
                 } else if (isDone) {
@@ -2348,25 +2507,27 @@ async function publishRiveraStory(parsedData, options = {}) {
                     caption = `🔴 *UPDATE SERVER PUSAT: ORDERAN KLOTER HARI INI DITUTUP!*\n\n` +
                       (servicesText ? `${servicesText}\n\n` : '') +
                       `Antrean kloter saat ini sedang diproses.\n` +
-                      `Pemesanan 3B Slow tetap buka 24 jam via web & WhatsApp.\n\n` +
+                      `Pemesanan 3B Slow tetap diterima via web. ${STORY_HOURS_NOTICE}.\n\n` +
                       `🗓️ ${dateWIB} (${timestampWIB} WIB)\n` +
                       `🌐 https://ry-itsolutionts.web.id`;
                 } else if (isPartialClose) {
                     caption = `⚡ *UPDATE STATUS & SLOT LAYANAN HARI INI!*\n\n` +
                       `${servicesText}\n\n` +
-                      `🛡️ *Pemesanan Web & WhatsApp Tetap Buka 24 Jam*\n` +
+                      `🛡️ *${STORY_HOURS_NOTICE}*\n` +
                       `⏰ Update: ${timestampWIB} WIB • ${dateWIB}\n\n` +
                       `🌐 Order via Web: https://ry-itsolutionts.web.id`;
                 } else {
                     caption = `⚡ *LIVE STATUS & SLOT UPDATE HARI INI!*\n\n` +
                       `${servicesText}\n\n` +
-                      `🛡️ *Semua Bergaransi Tanpa Drama*\n` +
+                      `🟢 *${STORY_READY_LIST}*\n` +
+                      `🛡️ ${STORY_HOURS_NOTICE}\n` +
                       `⏰ Update: ${timestampWIB} WIB • ${dateWIB}\n\n` +
                       `🌐 Order via Web: https://ry-itsolutionts.web.id`;
                 }
 
                 // Pengaman ganda: Dilarang keras ada kata "Rivera" di story maupun caption WhatsApp
-                caption = caption.replace(/rivera/gi, 'SERVER PUSAT').replace(/&amp;/g, '&');
+                caption = sanitizeStoryText(caption.replace(/rivera/gi, 'SERVER PUSAT').replace(/&amp;/g, '&'));
+                assertNoForbiddenPhrases(caption, 'WA caption');
 
                 const mediaToSend = videoData?.videoBuffer || buffer;
                 const isVid = Boolean(videoData?.videoBuffer);
@@ -2416,7 +2577,7 @@ async function publishCloseListSlowStory(cutoffTime = '15:00', options = {}) {
             { name: `3B SF SLOW (< ${cutoffTime} WIB)`, status: "DONE_TONIGHT", desc: "Masuk antrean hari ini • Selesai malam ini" },
             { name: `3B SF SLOW (> ${cutoffTime} WIB)`, status: "NEXT_BATCH", desc: "Pemesanan tetap dibuka • Diproses kloter besok" }
         ],
-        note: "Pemesanan Web & WhatsApp Buka 24 Jam • Antrean Otomatis"
+        note: `${STORY_HOURS_NOTICE} • Antrean Otomatis`
     };
     return await publishRiveraStory(parsedData, options);
 }
@@ -2437,6 +2598,16 @@ module.exports = {
     getActiveDJTracks,
     getSoftDailyTheme,
     SOFT_BLUE_THEMES,
+    STORY_HOURS_NOTICE,
+    STORY_READY_LIST,
+    STORY_V5_DAY_ORDER,
+    sanitizeStoryText,
+    assertNoForbiddenPhrases,
+    getDisplayServiceName,
+    getStoryBackgroundMarkup,
+    getStoryBackgroundSvg,
+    getStoryBackgroundMode,
+    setStoryBackgroundMode,
     generateSoftOpenSvg,
     generateSoftDisclaimerSvg,
     generateNewServiceSvg,

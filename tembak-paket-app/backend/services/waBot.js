@@ -3510,7 +3510,7 @@ async function notifyAddRoamerGroup(type, data = {}) {
                 const lines = activeServices.map(s => {
                     const sName = s.name || "";
                     let desc = "";
-                    if (sName.includes("FAST")) desc = " (proses kilat under 15 mnt)";
+                    if (sName.includes("FAST")) desc = " (prioritas server aktif)";
                     else if (sName.includes("SLOW")) {
                         if (parsed.cutoffTime) {
                             const dayLabel = parsed.cutoffDay === 'tomorrow' ? 'besok ' : '';

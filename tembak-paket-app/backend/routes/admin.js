@@ -2218,7 +2218,7 @@ router.post(['/admin/story/trigger-update', '/story/trigger-update'], (req, res,
             title: 'UPDATE SLOT',
             badge: 'UPDATE STATUS LAYANAN',
             services: [
-                { name: '3B SF FAST', status: 'READY', desc: 'Proses Cepat Under 15 Menit' },
+                { name: '3B SF FAST', status: 'READY', desc: 'Prioritas Server Aktif' },
                 { name: '3B SF SLOW', status: 'READY', desc: 'Done Malam • Sent s/d Sore' },
                 { name: '3B IND EXE', status: 'CLOSED', desc: 'Full Slot / Ditutup Sementara' }
             ],

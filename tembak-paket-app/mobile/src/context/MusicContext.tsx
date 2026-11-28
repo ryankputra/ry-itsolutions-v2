@@ -92,6 +92,35 @@ export const DEFAULT_TRACKS: Track[] = [
     coverImage: 'https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/50/c0/8b/50c08bf3-f106-9b29-5bf0-4a9c269add43/26UMGIM00072.rgb.jpg/400x400bb.jpg',
     youtubeId: 'sdnDInjdWjw',
   },
+  // Podcast & Talk - Fallback episodes (synced from backend /music endpoint)
+  {
+    id: 'podcast-1',
+    title: 'GJLS Episode 1: Opening',
+    artist: 'Podcast GJLS (Rigen, Rispo, Hifdzi)',
+    category: 'podcast',
+    categoryLabel: 'Podcast GJLS',
+    durationSec: 1800,
+    durationFormatted: '30:00',
+    streamsCount: 'Podcast Episode',
+    rank: 1,
+    tags: ['#podcast', '#gjls', '#podcastindo', '#komedi'],
+    coverImage: 'https://d3t3ozftmdmh3i.cloudfront.net/staging/podcast_uploaded_nologo/7328869/7328869-1721389864054-07bbed34b0133.jpg',
+    youtubeId: 'gjls-ep1',
+  },
+  {
+    id: 'podcast-2',
+    title: 'Mendoan Episode 1: Intro',
+    artist: 'Podcast MENDOAN (Dono & Tian)',
+    category: 'podcast',
+    categoryLabel: 'Podcast Mendoan',
+    durationSec: 1800,
+    durationFormatted: '30:00',
+    streamsCount: 'Podcast Episode',
+    rank: 2,
+    tags: ['#podcast', '#mendoan', '#podcastindo', '#komedi'],
+    coverImage: 'https://d3t3ozftmdmh3i.cloudfront.net/production/podcast_uploaded_nologo/2252663/2252663-1719541818945-beb7bce0dd537.jpg',
+    youtubeId: 'mendoan-ep1',
+  },
 ];
 
 interface MusicContextType {
@@ -106,6 +135,8 @@ interface MusicContextType {
   favorites: string[];
   isFullPlayerVisible: boolean;
   hasInteracted: boolean;
+  isShuffle: boolean;
+  isLoop: boolean;
   playTrack: (index: number) => Promise<void>;
   togglePlay: () => Promise<void>;
   nextTrack: () => void;
@@ -118,6 +149,8 @@ interface MusicContextType {
   syncTracks: () => Promise<void>;
   searchServerTracks: (q: string) => Promise<Track[]>;
   getAudioStreamUrl: (track: Track) => string;
+  toggleShuffle: () => void;
+  toggleLoop: () => void;
 }
 
 const MusicContext = createContext<MusicContextType | null>(null);
@@ -133,8 +166,12 @@ export const MusicProvider = ({ children }: { children: ReactNode }) => {
   const [favorites, setFavorites] = useState<string[]>(['track-1', 'track-4']);
   const [isFullPlayerVisible, setIsFullPlayerVisible] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [isLoop, setIsLoop] = useState(false);
 
   const soundRef = useRef<Audio.Sound | null>(null);
+  const shuffleQueueRef = useRef<number[]>([]);
+  const playedHistoryRef = useRef<number[]>([]);
   const currentTrack = tracks[currentTrackIndex] || tracks[0] || DEFAULT_TRACKS[0];
 
   // Configure Audio Mode on startup
@@ -328,8 +365,41 @@ export const MusicProvider = ({ children }: { children: ReactNode }) => {
     try {
       Haptics.selectionAsync();
     } catch {}
-    const nextIdx = (currentTrackIndex + 1) % tracks.length;
-    playTrack(nextIdx);
+
+    // 1. If Loop / Repeat is ON: Repeat current track from start
+    if (isLoop) {
+      seekTo(0);
+      if (soundRef.current) {
+        try {
+          soundRef.current.setPositionAsync(0).catch(() => {});
+          soundRef.current.playAsync().catch(() => {});
+        } catch {}
+      }
+      setIsPlaying(true);
+      return;
+    }
+
+    // Save current track to history so prevTrack can go back accurately
+    playedHistoryRef.current.push(currentTrackIndex);
+    if (playedHistoryRef.current.length > 60) {
+      playedHistoryRef.current.shift();
+    }
+
+    // 2. If Shuffle is ON: Use Fisher-Yates Queue so NO track repeats until all played
+    if (isShuffle) {
+      if (shuffleQueueRef.current.length === 0) {
+        shuffleQueueRef.current = generateShuffledQueue(tracks, currentTrackIndex);
+      }
+      const nextIndex =
+        shuffleQueueRef.current.length > 0
+          ? shuffleQueueRef.current.shift()!
+          : (currentTrackIndex + 1) % tracks.length;
+      playTrack(nextIndex);
+    } else {
+      // 3. Sequential order: strict rolling 0 -> 1 -> 2 -> ... -> N-1 -> 0
+      const nextIndex = (currentTrackIndex + 1) % tracks.length;
+      playTrack(nextIndex);
+    }
   };
 
   const prevTrack = () => {
@@ -338,6 +408,23 @@ export const MusicProvider = ({ children }: { children: ReactNode }) => {
     } catch {}
     const prevIdx = (currentTrackIndex - 1 + tracks.length) % tracks.length;
     playTrack(prevIdx);
+  };
+
+  // Helper to generate a Fisher-Yates randomized queue of track indices (matches web implementation)
+  const generateShuffledQueue = (trackList: Track[], currentIdx: number): number[] => {
+    if (!trackList || trackList.length <= 1) return [];
+    const pool: number[] = [];
+    for (let i = 0; i < trackList.length; i++) {
+      if (i !== currentIdx) {
+        pool.push(i);
+      }
+    }
+    // Fisher-Yates shuffle algorithm
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool;
   };
 
   const seekTo = async (sec: number) => {
@@ -365,6 +452,29 @@ export const MusicProvider = ({ children }: { children: ReactNode }) => {
     setFavorites((prev) =>
       prev.includes(trackId) ? prev.filter((id) => id !== trackId) : [...prev, trackId]
     );
+  };
+
+  const toggleShuffle = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setIsShuffle((prev) => {
+      const next = !prev;
+      if (next) {
+        // Pre-generate a complete randomized queue of all remaining tracks
+        shuffleQueueRef.current = generateShuffledQueue(tracks, currentTrackIndex);
+      } else {
+        shuffleQueueRef.current = [];
+      }
+      return next;
+    });
+  };
+
+  const toggleLoop = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setIsLoop((prev) => !prev);
   };
 
   const searchServerTracks = async (q: string): Promise<Track[]> => {
@@ -430,6 +540,8 @@ export const MusicProvider = ({ children }: { children: ReactNode }) => {
         favorites,
         isFullPlayerVisible,
         hasInteracted,
+        isShuffle,
+        isLoop,
         playTrack,
         togglePlay,
         nextTrack,
@@ -442,6 +554,8 @@ export const MusicProvider = ({ children }: { children: ReactNode }) => {
         syncTracks,
         searchServerTracks,
         getAudioStreamUrl,
+        toggleShuffle,
+        toggleLoop,
       }}
     >
       {children}

@@ -461,7 +461,7 @@ function initSchedulers() {
                         `━━━━━━━━━━━━━━━━━━━━━━\n` +
                         `⏰ *Waktu Cut-Off:* ${scheduledTime} WIB\n` +
                         `ℹ️ Order sebelum jam tersebut masuk antrean malam ini.\n` +
-                        `🌐 Pemesanan via Web & WhatsApp tetap buka 24 jam.\n` +
+                        `🌐 Web buka 24 jam • WA tutup 22.00 WIB.\n` +
                         `📸 Tayang di Instagram Story & WhatsApp Story Bot.`;
                     for (const phone of adminPhones) {
                         await waBot.sendAndStoreMessage(`${waBot.cleanPhone(phone)}@s.whatsapp.net`, { text: adminNotice });

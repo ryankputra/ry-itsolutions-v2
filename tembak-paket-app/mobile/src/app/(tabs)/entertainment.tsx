@@ -31,17 +31,21 @@ import {
   X,
   Volume2,
 } from 'lucide-react-native';
+import Shuffle from 'lucide-react-native';
+import Repeat from 'lucide-react-native';
+import Mic from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useMusic } from '../../context/MusicContext';
 import { Colors } from '../../theme/colors';
 
 const CATEGORIES = [
   { key: 'all', label: 'Semua Lagu', icon: Music },
+  { key: 'podcast', label: 'Podcast & Talk', icon: Mic },
   { key: 'global', label: 'Top Hits Global', icon: Globe },
   { key: 'kpop', label: 'K-Pop Hits', icon: Sparkles },
-  { key: 'indo', label: 'Pop Indo', icon: Headphones },
+  { key: 'indo', label: 'Pop & R&B Indo', icon: Headphones },
   { key: 'galau', label: 'Lagu Galau', icon: Heart },
-  { key: 'dance', label: 'Koplo & EDM', icon: Zap },
+  { key: 'dance', label: 'Koplo & Jawa Hits', icon: Zap },
   { key: 'favorites', label: 'Disukai', icon: Heart },
 ];
 
@@ -59,6 +63,8 @@ export default function EntertainmentScreen() {
     durationSec,
     playbackSpeed,
     favorites,
+    isShuffle,
+    isLoop,
     playTrack,
     togglePlay,
     nextTrack,
@@ -68,6 +74,8 @@ export default function EntertainmentScreen() {
     openFullPlayer,
     syncTracks,
     searchServerTracks,
+    toggleShuffle,
+    toggleLoop,
   } = useMusic();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -128,8 +136,8 @@ export default function EntertainmentScreen() {
   const filteredTracks = useMemo(() => {
     const sourceList = searchResults !== null ? searchResults : tracks;
     return sourceList.filter((t) => {
-      if (selectedCategory === 'all') return true;
       if (selectedCategory === 'favorites') return favorites.includes(t.id);
+      if (selectedCategory === 'all') return t.category !== 'podcast';
       return t.category === selectedCategory;
     });
   }, [tracks, searchResults, selectedCategory, favorites]);
@@ -350,6 +358,36 @@ export default function EntertainmentScreen() {
               {currentTrack.artist} • {formatSeconds(currentTimeSec)} / {formatSeconds(durationSec)}
             </Text>
           </View>
+
+          {/* Shuffle Toggle */}
+          <Pressable
+            style={[
+              styles.speedBtn,
+              { backgroundColor: isShuffle ? colors.primary : 'transparent', borderColor: isShuffle ? colors.primary : 'rgba(30, 215, 96, 0.3)' },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              toggleShuffle();
+            }}
+            hitSlop={8}
+          >
+            <Shuffle size={12} color={isShuffle ? '#000' : colors.primary} />
+          </Pressable>
+
+          {/* Loop Toggle */}
+          <Pressable
+            style={[
+              styles.speedBtn,
+              { backgroundColor: isLoop ? colors.primary : 'transparent', borderColor: isLoop ? colors.primary : 'rgba(30, 215, 96, 0.3)' },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              toggleLoop();
+            }}
+            hitSlop={8}
+          >
+            <Repeat size={12} color={isLoop ? '#000' : colors.primary} />
+          </Pressable>
 
           {/* Speed Toggle */}
           <Pressable
