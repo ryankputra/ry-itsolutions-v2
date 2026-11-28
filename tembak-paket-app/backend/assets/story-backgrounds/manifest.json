@@ -5,7 +5,7 @@
   "items": [
     {
       "id": "cc-minggu",
-      "dayKey": "minggu",
+      "dayKey": null,
       "file": "bg-cc-minggu.jpg",
       "title": "Analog Film Reel - Flickr - markus spiske.jpg",
       "artist": "Markus Spiske from Forchheim, Bavaria Upper Franconia",
@@ -35,7 +35,7 @@
     },
     {
       "id": "cc-selasa",
-      "dayKey": "selasa",
+      "dayKey": null,
       "file": "bg-cc-selasa.jpg",
       "title": "Warm coffee cup resting on window sill during a quiet morning with soft natural light.jpg",
       "artist": "Shixart1985",
@@ -80,7 +80,7 @@
     },
     {
       "id": "cc-jumat",
-      "dayKey": "jumat",
+      "dayKey": null,
       "file": "bg-cc-jumat.jpg",
       "title": "Long exposure of Hong Kong street (125873797).jpg",
       "artist": "Jan Philipp Kohrs",
