@@ -2282,26 +2282,15 @@ const WA_ADMIN_SHORTCUT_BUTTONS = [
 async function sendAdminShortcutButtons(jid, bodyText, buttons) {
     if (!sock) return false;
     try {
-        const btns = (Array.isArray(buttons) ? buttons : WA_ADMIN_SHORTCUT_BUTTONS).map(b => ({
-            buttonId: b.buttonId,
-            buttonText: { displayText: b.text },
-            type: 1
-        }));
-        const content = btns.length > 0 ? { interactiveMessage: {
-        body: { text: bodyText || "PANEL TOMBOL ADMIN" },
-        footer: { text: "Ry-ITSolutions" },
-        header: { title: "PANEL TOMBOL ADMIN" },
-        nativeFlowMessage: {
-            buttons: (Array.isArray(btns) ? btns : []).map(b => ({
-                name: "quick_reply",
-                buttonParamsJson: "{\"display_text\":\"" + (b.buttonText.displayText || b.buttonText.text || "") + "\",\"id\":\"" + b.buttonId + "\"}"
-            }))
-        }
-    } } : { text: bodyText };
-        await sendAndStoreMessage(jid, content);
+        const btns = Array.isArray(buttons) ? buttons : WA_ADMIN_SHORTCUT_BUTTONS;
+        const lines = [bodyText || "*PANEL TOMBOL ADMIN RY-ITSOLUTIONS*", "", "Pilih aksi cepat (balas dengan nomor atau perintah):"];
+        btns.forEach((b, i) => {
+            lines.push(`${i + 1}. ${b.text}  ->  ${b.buttonId.replace("wabot_admin_", ".")}`);
+        });
+        await sendAndStoreMessage(jid, { text: lines.join("\n") });
         return true;
     } catch (e) {
-        console.error(`[WABot] Gagal kirim tombol admin ke ${jid}:`, e?.stack || e?.message || e);
+        console.error("[WABot] Gagal kirim tombol admin ke " + jid + ":", e && e.message ? e.message : e);
         return false;
     }
 }
@@ -3982,18 +3971,7 @@ async function notifyNewOrder(orderData) {
 
             try {
                 await sendAndStoreMessage(adminJid, {
-                    interactiveMessage: {
-                        body: { text: messageBody },
-                        footer: { text: "Ry-ITSolutions" },
-                        header: { title: "PESANAN BARU" },
-                        nativeFlowMessage: {
-                            buttons: [
-                                { name: "quick_reply", buttonParamsJson: "{\"display_text\":\"✅ Proses\",\"id\":\"wabot_order_proses_" + id + "\"}" },
-                                { name: "quick_reply", buttonParamsJson: "{\"display_text\":\"✅ Selesai\",\"id\":\"wabot_order_selesai_" + id + "\"}" },
-                                { name: "quick_reply", buttonParamsJson: "{\"display_text\":\"❌ Batal/Refund\",\"id\":\"wabot_order_gagal_" + id + "\"}" }
-                            ]
-                        }
-                    }
+                    text: messageBody + "\n\nAksi: .proses " + id + " | .sukses " + id + " | .gagal " + id
                 });
                 logWABot(`✅ Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin})`, "info");
                 console.log(`[WABot] Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin}).`);
