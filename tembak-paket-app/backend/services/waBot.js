@@ -2271,12 +2271,12 @@ async function notifyCustomerOnStatusChange(trxOrId, newStatus, customNote = '')
  */
 // --- ADMIN SHORTCUT BUTTONS (WhatsApp: Baileys buttonsMessage -> buttonsResponseMessage) ---
 const WA_ADMIN_SHORTCUT_BUTTONS = [
-    { buttonId: "wabot_admin_status", text: "📊 Status" },
-    { buttonId: "wabot_admin_ready", text: "✅ Ready" },
-    { buttonId: "wabot_admin_close_list", text: "🔒 Close List" },
-    { buttonId: "wabot_admin_close_toko", text: "🛑 Close Toko" },
-    { buttonId: "wabot_admin_saldo", text: "💰 Saldo" },
-    { buttonId: "wabot_admin_help", text: "📖 Bantuan" }
+    { buttonId: "wabot_admin_status", text: "Status" },
+    { buttonId: "wabot_admin_ready", text: "Ready" },
+    { buttonId: "wabot_admin_close_list", text: "Close List" },
+    { buttonId: "wabot_admin_close_toko", text: "Close Toko" },
+    { buttonId: "wabot_admin_saldo", text: "Saldo" },
+    { buttonId: "wabot_admin_help", text: "Bantuan" }
 ];
 
 async function sendAdminShortcutButtons(jid, bodyText, buttons) {
@@ -2284,10 +2284,10 @@ async function sendAdminShortcutButtons(jid, bodyText, buttons) {
     try {
         const btns = (Array.isArray(buttons) ? buttons : WA_ADMIN_SHORTCUT_BUTTONS).map(b => ({
             buttonId: b.buttonId,
-            buttonText: { text: b.text },
+            buttonText: { displayText: b.text },
             type: 1
         }));
-        const content = btns.length > 0 ? { buttonsMessage: { buttons: btns } } : { text: bodyText };
+        const content = btns.length > 0 ? { text: bodyText || "PANEL TOMBOL ADMIN", buttons: btns, headerType: 1 } : { text: bodyText };
         await sendAndStoreMessage(jid, content);
         return true;
     } catch (e) {
@@ -3972,13 +3972,13 @@ async function notifyNewOrder(orderData) {
 
             try {
                 await sendAndStoreMessage(adminJid, {
-                    buttonsMessage: {
-                        buttons: [
-                            { buttonId: `wabot_order_proses_${id}`, buttonText: { text: "✅ Proses" }, type: 1 },
-                            { buttonId: `wabot_order_selesai_${id}`, buttonText: { text: "✅ Selesai" }, type: 1 },
-                            { buttonId: `wabot_order_gagal_${id}`, buttonText: { text: "❌ Batal/Refund" }, type: 1 }
-                        ]
-                    }
+                    text: messageBody,
+                    buttons: [
+                        { buttonId: `wabot_order_proses_${id}`, buttonText: { displayText: "✅ Proses" }, type: 1 },
+                        { buttonId: `wabot_order_selesai_${id}`, buttonText: { displayText: "✅ Selesai" }, type: 1 },
+                        { buttonId: `wabot_order_gagal_${id}`, buttonText: { displayText: "❌ Batal/Refund" }, type: 1 }
+                    ],
+                    headerType: 1
                 });
                 logWABot(`✅ Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin})`, "info");
                 console.log(`[WABot] Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin}).`);
