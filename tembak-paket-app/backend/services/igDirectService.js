@@ -1376,26 +1376,24 @@ async function generateSoftDisclaimerSvg(theme, musicTrack, bgOverride = null) {
             </filter>
         </defs>
 
-        <!-- Background: foto curated hari ini / gradient fallback -->
         ${bg.body}
 
         <!-- 1. Music Player Bar (In Safe Zone y=185) -->
         <g transform="translate(150, 185)" filter="url(#cardShadow)">
-            <rect width="780" height="74" rx="37" fill="#ffffff" stroke="${theme.primaryColor}" stroke-width="1.8" />
+            <rect width="780" height="74" rx="37" fill="#ffffff" stroke="${theme.primaryColor}" stroke-width="1.8"/>
             <circle cx="44" cy="37" r="22" fill="#eff6ff" stroke="${theme.primaryColor}" stroke-width="1.5"/>
-            <!-- Music Vector Icon -->
             <path d="M41 45V31l8-2v11" fill="none" stroke="${theme.primaryColor}" stroke-width="2" stroke-linecap="round"/>
             <circle cx="39" cy="44" r="3" fill="${theme.primaryColor}"/>
             <circle cx="47" cy="42" r="3" fill="${theme.primaryColor}"/>
             <text x="82" y="34" font-family="Arial, -apple-system, sans-serif" font-size="21" font-weight="bold" fill="#0f172a">${safeTitle.slice(0, 32)}</text>
             <text x="82" y="56" font-family="Arial, -apple-system, sans-serif" font-size="16" fill="#64748b">${safeArtist.slice(0, 36)}</text>
             <g transform="translate(680, 22)">
-                <rect x="0" y="10" width="4" height="20" rx="2" fill="${theme.primaryColor}" />
-                <rect x="8" y="4" width="4" height="26" rx="2" fill="${theme.secondaryColor}" />
-                <rect x="16" y="14" width="4" height="16" rx="2" fill="${theme.primaryColor}" />
-                <rect x="24" y="2" width="4" height="28" rx="2" fill="${theme.secondaryColor}" />
-                <rect x="32" y="8" width="4" height="22" rx="2" fill="${theme.primaryColor}" />
-                <rect x="40" y="16" width="4" height="14" rx="2" fill="${theme.secondaryColor}" />
+                <rect x="0" y="10" width="4" height="20" rx="2" fill="${theme.primaryColor}"/>
+                <rect x="8" y="4" width="4" height="26" rx="2" fill="${theme.secondaryColor}"/>
+                <rect x="16" y="14" width="4" height="16" rx="2" fill="${theme.primaryColor}"/>
+                <rect x="24" y="2" width="4" height="28" rx="2" fill="${theme.secondaryColor}"/>
+                <rect x="32" y="8" width="4" height="22" rx="2" fill="${theme.primaryColor}"/>
+                <rect x="40" y="16" width="4" height="14" rx="2" fill="${theme.secondaryColor}"/>
             </g>
         </g>
 
@@ -1405,58 +1403,55 @@ async function generateSoftDisclaimerSvg(theme, musicTrack, bgOverride = null) {
             <image href="${getAddRoamerLogoUri()}" x="6" y="6" width="108" height="108" preserveAspectRatio="xMidYMid meet"/>
         </g>
 
-        <!-- Pill Badge -->
-        <rect x="330" y="425" width="420" height="42" rx="21" fill="${theme.accentBadgeBg}" stroke="${theme.accentBadgeBorder}" stroke-width="1.6"/>
-        <circle cx="355" cy="446" r="6" fill="${theme.primaryColor}"/>
-        <text x="545" y="454" font-family="Arial, -apple-system, sans-serif" font-size="18" font-weight="bold" fill="${theme.accentBadgeText}" text-anchor="middle">EDUKASI &amp; TRANSPARANSI • RESMI</text>
+        <!-- 3. Badge + Main Title (redesigned) -->
+        <rect x="210" y="415" width="660" height="48" rx="24" fill="${theme.accentBadgeBg}" stroke="${theme.accentBadgeBorder}" stroke-width="1.6"/>
+        <circle cx="242" cy="439" r="7" fill="${theme.primaryColor}"/>
+        <text x="300" y="448" font-family="Arial, -apple-system, sans-serif" font-size="19" font-weight="bold" fill="${theme.accentBadgeText}" text-anchor="middle">EDUKASI &amp; TRANSPARANSI RESMI</text>
+        <text x="540" y="525" font-family="Arial, -apple-system, sans-serif" font-size="62" font-weight="900" fill="#0f172a" text-anchor="middle" letter-spacing="1">DISCLAIMER</text>
+        <text x="540" y="580" font-family="Arial, -apple-system, sans-serif" font-size="36" font-weight="900" fill="${theme.primaryColor}" text-anchor="middle" letter-spacing="1">LAYANAN ADD ROAMER</text>
+        <text x="540" y="622" font-family="Arial, -apple-system, sans-serif" font-size="22" font-weight="500" fill="#64748b" text-anchor="middle">Wajib Dibaca Demi Keamanan &amp; Kenyamanan Bersama</text>
 
-        <!-- Main Title -->
-        <text x="540" y="535" font-family="Arial, -apple-system, sans-serif" font-size="58" font-weight="900" fill="#0f172a" text-anchor="middle" letter-spacing="1">DISCLAIMER</text>
-        <text x="540" y="590" font-family="Arial, -apple-system, sans-serif" font-size="38" font-weight="900" fill="${theme.primaryColor}" text-anchor="middle" letter-spacing="1">LAYANAN ADD ROAMER</text>
-        <text x="540" y="632" font-family="Arial, -apple-system, sans-serif" font-size="22" font-weight="500" fill="#64748b" text-anchor="middle">Wajib Dibaca Demi Keamanan &amp; Kenyamanan Bersama</text>
-
-        <!-- 3. Card 1: Alert Tidak Ada Permanen (Clean Soft Rose) -->
-        <g transform="translate(70, 665)" filter="url(#cardShadow)">
-            <rect width="940" height="305" rx="26" fill="#fff1f2" stroke="#f43f5e" stroke-width="2"/>
+        <!-- 4. Card 1: Tidak Ada Permanen (redesigned) -->
+        <g transform="translate(70, 685)" filter="url(#cardShadow)">
+            <rect width="940" height="320" rx="26" fill="#fff1f2" stroke="#f43f5e" stroke-width="2"/>
             <rect x="30" y="24" width="48" height="48" rx="12" fill="#ffe4e6"/>
-            <text x="54" y="56" font-family="Arial, sans-serif" font-size="26" text-anchor="middle" fill="#e11d48" font-weight="bold">✕</text>
+            <text x="54" y="56" font-family="Arial, sans-serif" font-size="26" text-anchor="middle" fill="#e11d48" font-weight="bold">i</text>
             <text x="96" y="57" font-family="Arial, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#9f1239">TIDAK ADA ADD ROAMER PERMANEN</text>
-            <line x1="30" y1="88" x2="910" y2="88" stroke="#fecdd3" stroke-width="1.2"/>
+            <line x1="30" y1="92" x2="910" y2="92" stroke="#fecdd3" stroke-width="1.2"/>
 
-            <text x="35" y="132" font-family="Arial, -apple-system, sans-serif" font-size="22" fill="#4c0519">• Waspada penipuan oknum yang menjanjikan unblock permanen via Add Roamer.</text>
-            <text x="35" y="174" font-family="Arial, -apple-system, sans-serif" font-size="22" fill="#4c0519">• Secara teknis arsitektur operator seluler, Add Roamer bersifat berjangka.</text>
-            <text x="35" y="216" font-family="Arial, -apple-system, sans-serif" font-size="22" font-weight="bold" fill="#be123c">• Tidak ada bypass Add Roamer yang bisa aktif seumur hidup.</text>
-            <text x="35" y="258" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#881337">  (Patuhi aturan resmi agar IMEI &amp; perangkat Anda selalu aman terlindungi).</text>
+            <text x="35" y="136" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#4c0519">Waspada penipuan oknum yang menjanjikan unblock permanen via Add Roamer.</text>
+            <text x="35" y="178" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#4c0519">Secara teknis arsitektur operator selular, Add Roamer bersifat berjangka.</text>
+            <text x="35" y="220" font-family="Arial, -apple-system, sans-serif" font-size="21" font-weight="bold" fill="#be123c">Tidak ada bypass Add Roamer yang bisa aktif seumur hidup.</text>
+            <text x="35" y="262" font-family="Arial, -apple-system, sans-serif" font-size="19" fill="#881337">Patuhi aturan resmi agar IMEI &amp; perangkat Anda selalu aman terlindungi.</text>
         </g>
 
-        <!-- 4. Card 2: Durasi Resmi Yang Tersedia (Clean Soft Emerald) -->
-        <g transform="translate(70, 995)" filter="url(#cardShadow)">
-            <rect width="940" height="360" rx="26" fill="#f0fdf4" stroke="#10b981" stroke-width="2"/>
+        <!-- 5. Card 2: Durasi Resmi (redesigned) -->
+        <g transform="translate(70, 1025)" filter="url(#cardShadow)">
+            <rect width="940" height="330" rx="26" fill="#f0fdf4" stroke="#10b981" stroke-width="2"/>
             <rect x="30" y="24" width="48" height="48" rx="12" fill="#dcfce7"/>
             <text x="54" y="56" font-family="Arial, sans-serif" font-size="26" text-anchor="middle" fill="#059669" font-weight="bold">✓</text>
             <text x="96" y="57" font-family="Arial, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#065f46">HANYA TERSEDIA OPSI 1 BULAN &amp; 3 BULAN</text>
-            <line x1="30" y1="88" x2="910" y2="88" stroke="#bbf7d0" stroke-width="1.2"/>
+            <line x1="30" y1="92" x2="910" y2="92" stroke="#bbf7d0" stroke-width="1.2"/>
 
-            <text x="35" y="132" font-family="Arial, -apple-system, sans-serif" font-size="22" fill="#064e3b">• Ry-ITSolutions hanya melayani paket resmi aktivasi 1 Bulan &amp; 3 Bulan.</text>
-            <text x="35" y="174" font-family="Arial, -apple-system, sans-serif" font-size="22" fill="#064e3b">• Mendukung All Operator Indonesia: Telkomsel, Indosat, XL, Tri, SF.</text>
-            <text x="35" y="216" font-family="Arial, -apple-system, sans-serif" font-size="22" fill="#064e3b">• Seluruh pengerjaan bergaransi penuh sesuai masa aktif yang dipilih.</text>
-            <text x="35" y="258" font-family="Arial, -apple-system, sans-serif" font-size="22" font-weight="bold" fill="#047857">• Transaksi 100% transparan, aman &amp; tercatat otomatis</text>
-            <text x="52" y="294" font-family="Arial, -apple-system, sans-serif" font-size="22" font-weight="bold" fill="#065f46">  ke dalam nota invoice digital resmi.</text>
+            <text x="35" y="136" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#064e3b">Ry-ITSolutions hanya melayani paket resmi aktivasi 1 Bulan &amp; 3 Bulan.</text>
+            <text x="35" y="178" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#064e3b">Mendukung All Operator Indonesia: Telkomsel, Indosat, XL, Tri, SF.</text>
+            <text x="35" y="220" font-family="Arial, -apple-system, sans-serif" font-size="21" fill="#064e3b">Seluruh pengerjaan bergaransi penuh sesuai masa aktif yang dipilih.</text>
+            <text x="35" y="262" font-family="Arial, -apple-system, sans-serif" font-size="21" font-weight="bold" fill="#047857">Transaksi 100% transparan, aman &amp; tercatat otomatis</text>
+            <text x="52" y="298" font-family="Arial, -apple-system, sans-serif" font-size="21" font-weight="bold" fill="#065f46">ke dalam nota invoice digital resmi.</text>
         </g>
 
-        <!-- 5. Card 3: Footer Kontak Resmi & Web (Clean Soft White-Blue) -->
-        <g transform="translate(70, 1380)" filter="url(#cardShadow)">
-            <rect width="940" height="200" rx="24" fill="#ffffff" stroke="${theme.primaryColor}" stroke-width="2"/>
-            <text x="470" y="54" font-family="Arial, -apple-system, sans-serif" font-size="26" font-weight="bold" fill="#0f172a" text-anchor="middle">Konsultasi Resmi &amp; Cek IMEI</text>
-            
-            <!-- Clean Vector Globe -->
-            <g transform="translate(320, 104)">
-                <circle cx="0" cy="0" r="14" fill="none" stroke="${theme.primaryColor}" stroke-width="2.5"/>
-                <ellipse cx="0" cy="0" rx="6" ry="14" fill="none" stroke="${theme.primaryColor}" stroke-width="2"/>
-                <line x1="-14" y1="0" x2="14" y2="0" stroke="${theme.primaryColor}" stroke-width="2"/>
+        <!-- 6. Footer Kontak Resmi & Web (redesigned) -->
+        <g transform="translate(70, 1400)" filter="url(#cardShadow)">
+            <rect width="940" height="180" rx="24" fill="#ffffff" stroke="${theme.primaryColor}" stroke-width="2"/>
+            <text x="470" y="50" font-family="Arial, -apple-system, sans-serif" font-size="24" font-weight="bold" fill="#0f172a" text-anchor="middle">Konsultasi Resmi &amp; Cek IMEI</text>
+
+            <g transform="translate(320, 82)">
+                <circle cx="0" cy="0" r="13" fill="none" stroke="${theme.primaryColor}" stroke-width="2.5"/>
+                <ellipse cx="0" cy="0" rx="5.5" ry="13" fill="none" stroke="${theme.primaryColor}" stroke-width="2"/>
+                <line x1="-13" y1="0" x2="13" y2="0" stroke="${theme.primaryColor}" stroke-width="2"/>
             </g>
-            <text x="350" y="113" font-family="Arial, -apple-system, sans-serif" font-size="32" font-weight="bold" fill="${theme.primaryColor}">ry-itsolutionts.web.id</text>
-            <text x="470" y="156" font-family="Arial, -apple-system, sans-serif" font-size="20" fill="#64748b" text-anchor="middle">Ry-ITSolutions • Solusi Digital &amp; Jaringan Terpercaya</text>
+            <text x="350" y="90" font-family="Arial, -apple-system, sans-serif" font-size="30" font-weight="bold" fill="${theme.primaryColor}">ry-itsolutionts.web.id</text>
+            <text x="470" y="126" font-family="Arial, -apple-system, sans-serif" font-size="18" fill="#64748b" text-anchor="middle">Ry-ITSolutions Solusi Digital &amp; Jaringan Terpercaya</text>
         </g>
     </svg>
     `;
