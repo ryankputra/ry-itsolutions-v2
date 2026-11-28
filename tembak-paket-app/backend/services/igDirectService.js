@@ -1503,18 +1503,7 @@ async function publishOpenStory(options = {}) {
                     `🌐 https://ry-itsolutionts.web.id`;
                 // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
                 // BUG A(c): generateStoryVideo() bisa null → label media jujur, jangan klaim "video bermusik" kalau foto
-                // Kirim gambar + voice note (lebih reliable di mobile, musik tetap ada)
-                let audioBuffer1 = null;
-                try {
-                    const audioPath1 = openTrack?.filename ? path.join(AUDIO_DIR, openTrack.filename) : null;
-                    if (audioPath1 && fs.existsSync(audioPath1)) {
-                        audioBuffer1 = fs.readFileSync(audioPath1);
-                    } else {
-                        const files = fs.existsSync(AUDIO_DIR) ? fs.readdirSync(AUDIO_DIR).filter(f => f.endsWith('.mp3')) : [];
-                        if (files.length > 0) audioBuffer1 = fs.readFileSync(path.join(AUDIO_DIR, files[0]));
-                    }
-                } catch (e) { console.warn('[publishOpenStory] Gagal baca audio 1:', e.message); }
-                results.openStory.whatsapp = await publishWhatsAppStory(openBuffer, captionStory1, false, audioBuffer1);
+                results.openStory.whatsapp = await publishWhatsAppStory(openBuffer, captionStory1, false);
             }
         } catch (waErr) {
             console.warn('[publishOpenStory] Warning saat posting WA Story 1 (Open):', waErr.message);
@@ -1544,18 +1533,7 @@ async function publishOpenStory(options = {}) {
                     `🌐 https://ry-itsolutionts.web.id`;
                 // BUG A(d): WA merender medianya sendiri — JANGAN pinjam dari hasil Instagram
                 // BUG A(c): generateStoryVideo() bisa null → label media jujur, jangan klaim "video bermusik" kalau foto
-                // Kirim gambar + voice note (lebih reliable di mobile, musik tetap ada)
-                let audioBuffer2 = null;
-                try {
-                    const audioPath2 = disclaimerTrack?.filename ? path.join(AUDIO_DIR, disclaimerTrack.filename) : null;
-                    if (audioPath2 && fs.existsSync(audioPath2)) {
-                        audioBuffer2 = fs.readFileSync(audioPath2);
-                    } else {
-                        const files = fs.existsSync(AUDIO_DIR) ? fs.readdirSync(AUDIO_DIR).filter(f => f.endsWith('.mp3')) : [];
-                        if (files.length > 0) audioBuffer2 = fs.readFileSync(path.join(AUDIO_DIR, files[0]));
-                    }
-                } catch (e) { console.warn('[publishOpenStory] Gagal baca audio 2:', e.message); }
-                results.disclaimerStory.whatsapp = await publishWhatsAppStory(disclaimerBuffer, captionStory2, false, audioBuffer2);
+                results.disclaimerStory.whatsapp = await publishWhatsAppStory(disclaimerBuffer, captionStory2, false);
             }
         } catch (waErr2) {
             console.warn('[publishOpenStory] Warning saat posting WA Story 2 (Disclaimer):', waErr2.message);
