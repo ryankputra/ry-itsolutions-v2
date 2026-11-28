@@ -2287,7 +2287,17 @@ async function sendAdminShortcutButtons(jid, bodyText, buttons) {
             buttonText: { displayText: b.text },
             type: 1
         }));
-        const content = btns.length > 0 ? { buttonsMessage: { contentText: bodyText || "PANEL TOMBOL ADMIN", footerText: "Ry-ITSolutions", buttons: btns, headerType: 1 } } : { text: bodyText };
+        const content = btns.length > 0 ? { interactiveMessage: {
+        body: { text: bodyText || "PANEL TOMBOL ADMIN" },
+        footer: { text: "Ry-ITSolutions" },
+        header: { title: "PANEL TOMBOL ADMIN" },
+        nativeFlowMessage: {
+            buttons: (Array.isArray(btns) ? btns : []).map(b => ({
+                name: "quick_reply",
+                buttonParamsJson: "{\"display_text\":\"" + (b.buttonText.displayText || b.buttonText.text || "") + "\",\"id\":\"" + b.buttonId + "\"}"
+            }))
+        }
+    } } : { text: bodyText };
         await sendAndStoreMessage(jid, content);
         return true;
     } catch (e) {
@@ -3972,15 +3982,17 @@ async function notifyNewOrder(orderData) {
 
             try {
                 await sendAndStoreMessage(adminJid, {
-                    buttonsMessage: {
-                        contentText: messageBody,
-                        footerText: "Ry-ITSolutions",
-                        buttons: [
-                            { buttonId: `wabot_order_proses_${id}`, buttonText: { displayText: "✅ Proses" }, type: 1 },
-                            { buttonId: `wabot_order_selesai_${id}`, buttonText: { displayText: "✅ Selesai" }, type: 1 },
-                            { buttonId: `wabot_order_gagal_${id}`, buttonText: { displayText: "❌ Batal/Refund" }, type: 1 }
-                        ],
-                        headerType: 1
+                    interactiveMessage: {
+                        body: { text: messageBody },
+                        footer: { text: "Ry-ITSolutions" },
+                        header: { title: "PESANAN BARU" },
+                        nativeFlowMessage: {
+                            buttons: [
+                                { name: "quick_reply", buttonParamsJson: "{\"display_text\":\"✅ Proses\",\"id\":\"wabot_order_proses_" + id + "\"}" },
+                                { name: "quick_reply", buttonParamsJson: "{\"display_text\":\"✅ Selesai\",\"id\":\"wabot_order_selesai_" + id + "\"}" },
+                                { name: "quick_reply", buttonParamsJson: "{\"display_text\":\"❌ Batal/Refund\",\"id\":\"wabot_order_gagal_" + id + "\"}" }
+                            ]
+                        }
                     }
                 });
                 logWABot(`✅ Notifikasi pesanan ${id} dengan tombol aksi berhasil dikirim ke admin (${cleanAdmin})`, "info");
