@@ -2280,7 +2280,7 @@ const WA_ADMIN_SHORTCUT_BUTTONS = [
 ];
 
 async function sendAdminShortcutButtons(jid, bodyText, buttons) {
-    if (!sock || connectionState !== "open") return false;
+    if (!sock) return false;
     try {
         const btns = (Array.isArray(buttons) ? buttons : WA_ADMIN_SHORTCUT_BUTTONS).map(b => ({
             buttonId: b.buttonId,
@@ -2301,7 +2301,7 @@ async function sendAdminShortcutButtons(jid, bodyText, buttons) {
         await sendAndStoreMessage(jid, content);
         return true;
     } catch (e) {
-        console.warn(`[WABot] Gagal kirim tombol admin ke ${jid}:`, e.message);
+        console.error(`[WABot] Gagal kirim tombol admin ke ${jid}:`, e?.stack || e?.message || e);
         return false;
     }
 }
