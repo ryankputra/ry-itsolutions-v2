@@ -797,8 +797,8 @@ async function generateStoryVideo(formattedImageBuffer, track) {
 
         // Resize ke 720x1280 (HD 9:16) agar encoding FFmpeg di server sangat cepat (~2-3 detik di STB) dan hemat resource
         const scaledImgBuffer = await sharp(formattedImageBuffer)
-            .resize(720, 1280, { fit: 'fill' })
-            .jpeg({ quality: 90 })
+            .resize(480, 854, { fit: 'fill' })
+            .jpeg({ quality: 85 })
             .toBuffer();
 
         fs.writeFileSync(tempImg, scaledImgBuffer);
@@ -819,14 +819,17 @@ async function generateStoryVideo(formattedImageBuffer, track) {
             '-i', audioPath,
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
+            '-profile:v', 'baseline',
+            '-level', '3.0',
             '-tune', 'stillimage',
-            '-t', '15',
+            '-t', '10',
             '-pix_fmt', 'yuv420p',
             '-r', '15',
-            '-crf', '26',
+            '-crf', '28',
             '-c:a', 'aac',
-            '-b:a', '128k',
+            '-b:a', '96k',
             '-ar', '44100',
+            '-ac', '2',
             '-shortest',
             '-movflags', '+faststart',
             tempVid
@@ -895,14 +898,17 @@ async function generateFeedVideo(formattedImageBuffer, track) {
             '-i', audioPath,
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
+            '-profile:v', 'baseline',
+            '-level', '3.0',
             '-tune', 'stillimage',
-            '-t', '15',
+            '-t', '10',
             '-pix_fmt', 'yuv420p',
             '-r', '15',
-            '-crf', '26',
+            '-crf', '28',
             '-c:a', 'aac',
-            '-b:a', '128k',
+            '-b:a', '96k',
             '-ar', '44100',
+            '-ac', '2',
             '-shortest',
             '-movflags', '+faststart',
             tempVid
