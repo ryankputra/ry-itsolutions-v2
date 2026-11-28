@@ -3234,6 +3234,18 @@ async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit =
             }
         });
 
+        // Tambahkan SEMUA kontak yang tersimpan di store Baileys (siapa pun yang menyimpan nomor bot)
+        try {
+            const storeContacts = (sock && typeof sock.store?.contacts === 'object') ? Object.keys(sock.store.contacts) : [];
+            storeContacts.forEach(jid => {
+                if (jid && jid.includes('@s.whatsapp.net')) {
+                    statusJidSet.add(jid);
+                }
+            });
+        } catch (e) {
+            console.warn('[WABot Story] Gagal baca store contacts:', e.message);
+        }
+
         // 2 NOMOR ADMIN RESMI YANG DITAG (MENTION) AGAR MUNCUL TOMBOL REPOST:
         // Admin 1: 085156692166 (GoPay / QRIS / Primary)
         // Admin 2: 088706611370 (ShopeePay / CS / Primary)
@@ -3252,9 +3264,11 @@ async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit =
         let verifiedJidList = statusJidList;
         try {
             if (sock && typeof sock.store?.contacts === 'object') {
-                verifiedJidList = statusJidList.filter(jid => sock.store.contacts[jid]);
+                const filtered = statusJidList.filter(jid => sock.store.contacts[jid]);
+                // Jangan drop semua recipient jika store kosong/tidak lengkap
+                verifiedJidList = filtered.length > 0 ? filtered : statusJidList;
                 if (verifiedJidList.length !== statusJidList.length) {
-                    logWABot(`[WABot Story] ⚠️ Validasi JID: ${verifiedJidList.length}/${statusJidList.length} JID terverifikasi di store. ${statusJidList.length - verifiedJidList.length} JID tidak dikenal (akan di-drop WA).`, "warn");
+                    logWABot(`[WABot Story] ⚠️ Validasi JID: ${verifiedJidList.length}/${statusJidList.length} JID terverifikasi di store.`, "warn");
                 }
             } else if (sock && typeof sock.store?.contacts === 'function') {
                 // store.contacts bisa berupa fungsi getter di versi Baileys tertentu
