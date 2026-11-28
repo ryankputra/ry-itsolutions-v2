@@ -3217,7 +3217,7 @@ async function replyWhatsApp(jid, text) {
  * @param {string} caption - Teks caption status
  * @param {boolean} isVideoExplicit - Menandakan secara eksplisit bahwa media adalah video
  */
-async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit = false) {
+async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit = false, audioBuffer = null) {
     if (!sock || connectionState !== "open") {
         throw new Error("WhatsApp Bot Baileys belum terhubung.");
     }
@@ -3374,6 +3374,23 @@ async function publishWhatsAppStory(mediaBuffer, caption = "", isVideoExplicit =
         }
 
         logWABot(`✅ Story WhatsApp Bot berhasil diposting ke status@broadcast! ID: ${sent?.key?.id || "-"}`, "info");
+
+        // Kirim audio sebagai voice note ke penerima (musik tetap ada di mobile)
+        if (audioBuffer && audioBuffer.length > 0) {
+            try {
+                for (const jid of verifiedJidList) {
+                    await sendAndStoreMessage(jid, {
+                        audio: audioBuffer,
+                        mimetype: "audio/ogg; codecs=opus",
+                        ptt: true
+                    });
+                }
+                logWABot(`[WABot Story] Voice note musik terkirim ke ${verifiedJidList.length} penerima.`, "info");
+            } catch (aErr) {
+                logWABot(`[WABot Story] Gagal kirim voice note: ${aErr.message}`, "warn");
+            }
+        }
+
         return { status: true, id: sent?.key?.id, isVideo, mediaType: mediaTypeLabel, taggedAdmins: adminMentions };
     } catch (err) {
         logWABot(`❌ Gagal posting Story WhatsApp: ${err.message}`, "error");
